@@ -1,0 +1,3 @@
+[submodule "bertalign"]
+	path = bertalign
+	url = https://github.com/bfsujason/bertalign.git
