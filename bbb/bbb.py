@@ -6,6 +6,7 @@ class BBB:
                 target_language = None,
                 threads = 1,
                 auto_match_chapter_threshold = None,
+                only_match_chapters = False,
                 keep_unmatched_source_chapters = False,
                 keep_unmatched_target_chapters = True
             ):
@@ -15,6 +16,7 @@ class BBB:
         self.target_language = target_language
         self.threads = threads
         self.auto_match_chapter_threshold = auto_match_chapter_threshold
+        self.only_match_chapters = only_match_chapters
         self.keep_unmatched_source_chapters = keep_unmatched_source_chapters
         self.keep_unmatched_target_chapters = keep_unmatched_target_chapters
     
@@ -32,3 +34,6 @@ class BBB:
             chapter_pairs = mapper.run_auto(self.auto_match_chapter_threshold)
         else:
             chapter_pairs = mapper.run_interactive()
+        
+        if self.only_match_chapters:
+            return
