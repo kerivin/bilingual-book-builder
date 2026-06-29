@@ -192,9 +192,9 @@ class ChapterMapper:
         return final
     
     def run(self):
-        self._run()
         while True:
-            self._print_confirmation_mapping()
+            if self._run() is None:
+                return None
             try:
                 confirm = input("Accept this mapping? [y]es / [n]o (redo) / [q]uit: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
@@ -204,7 +204,6 @@ class ChapterMapper:
                 return self._export_mapping()
             elif confirm in ('n', 'no'):
                 print("Restarting matching...\n")
-                self._run()
             elif confirm in ('q', 'quit'):
                 print("Aborted by user.")
                 return None
