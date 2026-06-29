@@ -5,14 +5,18 @@ class BBB:
                 source_language = None,
                 target_language = None,
                 threads = 1,
-                auto_accept_mapping = False
+                auto_match_chapter_threshold = None,
+                keep_unmatched_source_chapters = False,
+                keep_unmatched_target_chapters = True
             ):
         self.source_epub_path = source_epub_path
         self.target_epub_path = target_epub_path
         self.source_language = source_language
         self.target_language = target_language
         self.threads = threads
-        self.auto_accept_mapping = auto_accept_mapping
+        self.auto_match_chapter_threshold = auto_match_chapter_threshold
+        self.keep_unmatched_source_chapters = keep_unmatched_source_chapters
+        self.keep_unmatched_target_chapters = keep_unmatched_target_chapters
     
     def run(self):
         # from bertalign.bertalign import Bertalign
@@ -22,5 +26,9 @@ class BBB:
         src_chapters = ChapterExtractor(self.source_epub_path).get_chapter_list()
         tgt_chapters = ChapterExtractor(self.target_epub_path).get_chapter_list()
 
-        mapper = ChapterMapper(src_chapters, tgt_chapters)
-        chapter_pairs = mapper.run()
+        mapper = ChapterMapper(src_chapters, tgt_chapters, self.keep_unmatched_source_chapters, self.keep_unmatched_target_chapters)
+        chapter_pairs = []
+        if self.auto_match_chapter_threshold is not None:
+            chapter_pairs = mapper.run_auto(self.auto_match_chapter_threshold)
+        else:
+            chapter_pairs = mapper.run_interactive()

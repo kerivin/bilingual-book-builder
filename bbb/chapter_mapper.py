@@ -1,16 +1,23 @@
-import sys
 import shutil
+import numpy as np
+from enum import IntEnum
+from sentence_transformers import SentenceTransformer
 
 class ChapterMapper:
-    def __init__(self, source_chapters, target_chapters):
+    def __init__(self, source_chapters, target_chapters, keep_unmatched_source_chapters, keep_unmatched_target_chapters):
         self.source = source_chapters
         self.target = target_chapters
+        self.keep_unmatched_source_chapters = keep_unmatched_source_chapters
+        self.keep_unmatched_target_chapters = keep_unmatched_target_chapters
         self.source_count = len(source_chapters)
         self.target_count = len(target_chapters)
         self.pairs = []
         self.unmatched_source = []
         self.unmatched_target = []
-        self.terminal_width = shutil.get_terminal_size().columns
+
+    def _print_horizontal_line(self):
+        terminal_width = shutil.get_terminal_size().columns
+        print("─" * terminal_width)
 
     def _chapter_str(self, chapters, idx):
         if idx < 0 or idx >= len(chapters):
@@ -60,39 +67,48 @@ class ChapterMapper:
         for s_line, t_line in zip(source_lines, target_lines):
             print(f"{s_line:<{col_width}}{t_line}")
 
-    def _print_confirmation_mapping(self):
-        """Output a clean block-style mapping for final confirmation."""
+    def _show_chapter_mapping(self):
         if not self.pairs and not self.unmatched_source and not self.unmatched_target:
             print("No mapping defined.")
             return
 
-        print("\nProposed mapping:")
+        target_to_source = {}
         for s_list, t_list in self.pairs:
-            for si in s_list:
+            for ti in t_list:
+                target_to_source[ti] = s_list[0] if s_list else None
+
+        print("\nProposed mapping:")
+
+        max_len = max(self.source_count, self.target_count)
+        for i in range(max_len):
+            if self.keep_unmatched_source_chapters and i < self.source_count and i in self.unmatched_source:
+                source_title = self._chapter_title(self.source, i)
+                source_preview = self._chapter_preview(self.source, i)
+                print(source_title + " - (no target)")
+                print(source_preview)
+                print("-")
+                self._print_horizontal_line()
+
+            if self.keep_unmatched_target_chapters and i < self.target_count and i in self.unmatched_target:
+                target_title = self._chapter_title(self.target, i)
+                target_preview = self._chapter_preview(self.target, i)
+                print("(no source) - " + target_title)
+                print("-")
+                print(target_preview)
+                self._print_horizontal_line()
+
+            if i < self.target_count and i in target_to_source:
+                si = target_to_source[i]
                 source_title = self._chapter_title(self.source, si)
                 source_preview = self._chapter_preview(self.source, si)
-                for ti in t_list:
-                    target_title = self._chapter_title(self.target, ti)
-                    target_preview = self._chapter_preview(self.target, ti)
-                    print(source_title)
-                    print(target_title)
-                    print(source_preview)
-                    print(target_preview)
-                    print("─" * self.terminal_width)
-        for s in self.unmatched_source:
-            print(self._chapter_title(self.source, s))
-            print("(no target)")
-            print(self._chapter_preview(self.source, s))
-            print("")
-            print("─" * self.terminal_width)
-        for t in self.unmatched_target:
-            print("(no source)")
-            print(self._chapter_title(self.target, t))
-            print("")
-            print(self._chapter_preview(self.target, t))
-            print("─" * self.terminal_width)
+                target_title = self._chapter_title(self.target, i)
+                target_preview = self._chapter_preview(self.target, i)
+                print(source_title + ' - ' + target_title)
+                print(source_preview)
+                print(target_preview)
+                self._print_horizontal_line()
 
-    def _run(self):
+    def _run_interactive(self):
         self.pairs = []
         self.unmatched_source = []
         self.unmatched_target = []
@@ -105,7 +121,7 @@ class ChapterMapper:
         print("\nMatch each pair. Press Enter to accept, 'S' to move to the next source chapter, 'T' to move to the next target chapter.\n")
 
         while si < self.source_count or ti < self.target_count:
-            print("─" * self.terminal_width)
+            self._print_horizontal_line()
             if si < self.source_count:
                 print(f"Source [S to next]: {self._chapter_str(self.source, si)}")
             else:
@@ -114,7 +130,7 @@ class ChapterMapper:
                 print(f"Target [T to next]: {self._chapter_str(self.target, ti)}")
             else:
                 print("Target: (no more)")
-            print("─" * self.terminal_width)
+            self._print_horizontal_line()
 
             if si >= self.source_count and ti >= self.target_count:
                 break
@@ -179,21 +195,23 @@ class ChapterMapper:
                 print("Invalid command. Try again.")
                 continue
 
-        self._print_confirmation_mapping()
+        self._show_chapter_mapping()
 
     def _export_mapping(self):
         final = []
         for s_list, t_list in self.pairs:
             final.append((s_list, t_list))
-        for s in sorted(self.unmatched_source):
-            final.append(([s], []))
-        for t in sorted(self.unmatched_target):
-            final.append(([], [t]))
+        if self.keep_unmatched_source_chapters:
+            for s in sorted(self.unmatched_source):
+                final.append(([s], []))
+        if self.keep_unmatched_target_chapters:
+            for t in sorted(self.unmatched_target):
+                final.append(([], [t]))
         return final
     
-    def run(self):
+    def run_interactive(self):
         while True:
-            if self._run() is None:
+            if self._run_interactive() is None:
                 return None
             try:
                 confirm = input("Accept this mapping? [y]es / [n]o (redo) / [q]uit: ").strip().lower()
@@ -209,3 +227,103 @@ class ChapterMapper:
                 return None
             else:
                 print("Please answer y, n, or q.")
+
+    def run_auto(self, threshold: float = 0.5, gap_penalty: float = 0.3):
+        """Automatically map source↔target by aligning first sentences."""
+        from bertalign.bertalign import model_name
+        model = SentenceTransformer(model_name)
+
+        def chapter_signature(chapter, sentence_count: int = 3):
+            full_text = chapter.get('full_text', '')
+            if not full_text:
+                return ""
+
+            parts = full_text.split('\n\n', 1)
+            body = parts[1] if len(parts) > 1 else full_text
+            sentences = body.replace('\n', ' ').split('. ')
+
+            first_part = ' '.join(sentences[:sentence_count])[:400]
+
+            if len(sentences) >= sentence_count:
+                last_part = ' '.join(sentences[-sentence_count:])[:400]
+            elif sentences:
+                last_part = sentences[-1][:200]
+            else:
+                last_part = ""
+
+            return (first_part + " " + last_part).strip()
+
+        src_signature = [chapter_signature(ch) for ch in self.source]
+        tgt_signature = [chapter_signature(ch) for ch in self.target]
+
+        src_embs = model.encode(src_signature, convert_to_numpy = True)
+        tgt_embs = model.encode(tgt_signature, convert_to_numpy = True)
+
+        # Normalise
+        src_embs = src_embs / np.linalg.norm(src_embs, axis = 1, keepdims = True)
+        tgt_embs = tgt_embs / np.linalg.norm(tgt_embs, axis = 1, keepdims = True)
+
+        sim = np.dot(src_embs, tgt_embs.T)  # shape (S, T)
+
+        S, T = len(src_signature), len(tgt_signature)
+        # DP table: dp[i][j] = best score up to i-1, j-1
+        dp = np.full((S+1, T+1), -1e9)
+        dp[0, 0] = 0.0
+
+        class MatchDirection(IntEnum):
+            DIAGONAL = 0
+            UP = 1 # skip source
+            LEFT = 2 # skip target
+        back = np.zeros((S+1, T+1), dtype=int)
+
+        for i in range(S+1):
+            for j in range(T+1):
+                if i == 0 and j == 0:
+                    continue
+                best = -1e9
+                best_pointer = None
+                if i > 0 and j > 0:
+                    score = dp[i-1, j-1] + (sim[i-1, j-1] if sim[i-1, j-1] >= threshold else -gap_penalty)
+                    if score > best:
+                        best = score
+                        best_pointer = MatchDirection.DIAGONAL
+                if i > 0:
+                    score = dp[i-1, j] - gap_penalty
+                    if score > best:
+                        best = score
+                        best_pointer = MatchDirection.UP
+                if j > 0:
+                    score = dp[i, j-1] - gap_penalty
+                    if score > best:
+                        best = score
+                        best_pointer = MatchDirection.LEFT
+                dp[i, j] = best
+                back[i, j] = best_pointer
+
+        # Traceback
+        i, j = S, T
+        pairs = []
+        while i > 0 or j > 0:
+            if back[i, j] == MatchDirection.DIAGONAL:
+                i -= 1; j -= 1
+                if sim[i, j] >= threshold:
+                    pairs.append(([i], [j]))
+                else:
+                    # treated as gap – both unmatched
+                    self.unmatched_source.append(i)
+                    self.unmatched_target.append(j)
+            elif back[i, j] == MatchDirection.UP:
+                i -= 1
+                self.unmatched_source.append(i)
+            elif back[i, j] == MatchDirection.LEFT:
+                j -= 1
+                self.unmatched_target.append(j)
+
+        # Reverse because we collected from end to start
+        pairs.reverse()
+        self.unmatched_source.reverse()
+        self.unmatched_target.reverse()
+
+        self.pairs = pairs
+        self._show_chapter_mapping()
+        return pairs
