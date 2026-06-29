@@ -102,16 +102,16 @@ class ChapterMapper:
         history = []
 
         self._show_chapter_lists_compact()
-        print("\nMatch each pair. Press Enter to accept, 'S' to skip source, 'T' to skip target.\n")
+        print("\nMatch each pair. Press Enter to accept, 'S' to move to the next source chapter, 'T' to move to the next target chapter.\n")
 
         while si < self.source_count or ti < self.target_count:
             print("─" * self.terminal_width)
             if si < self.source_count:
-                print(f"Source [S to skip]: {self._chapter_str(self.source, si)}")
+                print(f"Source [S to next]: {self._chapter_str(self.source, si)}")
             else:
                 print("Source: (no more)")
             if ti < self.target_count:
-                print(f"Target [T to skip]: {self._chapter_str(self.target, ti)}")
+                print(f"Target [T to next]: {self._chapter_str(self.target, ti)}")
             else:
                 print("Target: (no more)")
             print("─" * self.terminal_width)
@@ -124,7 +124,7 @@ class ChapterMapper:
                 action = 's'
             else:
                 try:
-                    raw = input("[ENTER] Match / [S] Skip Source / [T] Skip Target / [B] Back / [Q] Quit: ").strip().lower()
+                    raw = input("[ENTER] Match / [S] Source Next Chapter / [T] Target Next Chapter / [B] Back / [Q] Quit: ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
                     print("\nAborted.")
                     return None
