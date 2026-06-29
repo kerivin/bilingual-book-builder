@@ -6,7 +6,8 @@ from typing import List, Dict, Any
 import urllib.parse
 
 from bs4 import BeautifulSoup
-from ebooklib import epub
+from fast_ebook import epub
+import fast_ebook
 
 
 class ChapterExtractor:

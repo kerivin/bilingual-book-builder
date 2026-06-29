@@ -1,4 +1,4 @@
-ebooklib
+fast-ebook
 bs4
 
 -r ./bertalign/requirements.txt
