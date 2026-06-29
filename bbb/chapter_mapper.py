@@ -92,7 +92,7 @@ class ChapterMapper:
             print(self._chapter_preview(self.target, t))
             print("─" * self.terminal_width)
 
-    def run(self):
+    def _run(self):
         self.pairs = []
         self.unmatched_source = []
         self.unmatched_target = []
@@ -128,7 +128,7 @@ class ChapterMapper:
                 except (EOFError, KeyboardInterrupt):
                     print("\nAborted.")
                     return None
-                action = raw.lower()
+                action = raw
 
             if action == 'q':
                 print("Aborted by user.")
@@ -181,23 +181,6 @@ class ChapterMapper:
 
         self._print_confirmation_mapping()
 
-        while True:
-            try:
-                confirm = input("Accept this mapping? [y]es / [n]o (redo) / [q]uit: ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                print("\nAborted.")
-                return None
-            if confirm in ('y', 'yes', ''):
-                return self._export_mapping()
-            elif confirm in ('n', 'no'):
-                print("Restarting matching...\n")
-                return self.run()
-            elif confirm in ('q', 'quit'):
-                print("Aborted by user.")
-                return None
-            else:
-                print("Please answer y, n, or q.")
-
     def _export_mapping(self):
         final = []
         for s_list, t_list in self.pairs:
@@ -207,3 +190,23 @@ class ChapterMapper:
         for t in sorted(self.unmatched_target):
             final.append(([], [t]))
         return final
+    
+    def run(self):
+        self._run()
+        while True:
+            self._print_confirmation_mapping()
+            try:
+                confirm = input("Accept this mapping? [y]es / [n]o (redo) / [q]uit: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted.")
+                return None
+            if confirm in ('y', 'yes', ''):
+                return self._export_mapping()
+            elif confirm in ('n', 'no'):
+                print("Restarting matching...\n")
+                self._run()
+            elif confirm in ('q', 'quit'):
+                print("Aborted by user.")
+                return None
+            else:
+                print("Please answer y, n, or q.")
