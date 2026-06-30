@@ -112,16 +112,16 @@ class ChapterMapper:
         history = []
 
         self._show_chapter_lists_compact()
-        print("\nMatch each pair. Press Enter to accept, 'S' to move to the next source chapter, 'T' to move to the next target chapter.\n")
+        print("\nMatch each pair.\n")
 
         while si < self.source_count or ti < self.target_count:
             self._print_horizontal_line()
             if si < self.source_count:
-                print(f"Source [S to next]: {self._chapter_str(self.source, si)}")
+                print(f"Source [S to skip]: {self._chapter_str(self.source, si)}")
             else:
                 print("Source: (no more)")
             if ti < self.target_count:
-                print(f"Target [T to next]: {self._chapter_str(self.target, ti)}")
+                print(f"Target [T to skip]: {self._chapter_str(self.target, ti)}")
             else:
                 print("Target: (no more)")
             self._print_horizontal_line()
@@ -134,14 +134,12 @@ class ChapterMapper:
                 action = 's'
             else:
                 try:
-                    raw = input("[ENTER] Match / [S] Source Next Chapter / [T] Target Next Chapter / [B] Back / [Q] Quit: ").strip().lower()
+                    raw = input("[ENTER] Match / [S] Skip Source Chapter / [T] Skip Target Chapter / [B] Back / [Q] Quit: ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
-                    print("\nAborted.")
                     return False
                 action = raw
 
             if action == 'q':
-                print("Aborted by user.")
                 return False
 
             if action == 'b':
@@ -211,14 +209,12 @@ class ChapterMapper:
             try:
                 confirm = input("Accept this mapping? [y]es / [n]o (redo) / [q]uit: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
-                print("\nAborted.")
                 return None
             if confirm in ('y', 'yes', ''):
                 return self._export_mapping()
             elif confirm in ('n', 'no'):
                 print("Restarting matching...\n")
             elif confirm in ('q', 'quit'):
-                print("Aborted by user.")
                 return None
             else:
                 print("Please answer y, n, or q.")
