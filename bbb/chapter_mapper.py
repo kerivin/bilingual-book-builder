@@ -228,7 +228,7 @@ class ChapterMapper:
         from bertalign.bertalign import model_name
         model = SentenceTransformer(model_name)
 
-        def chapter_signature(chapter, sentence_count: int = 3):
+        def chapter_signature(chapter, sentence_count: int = 5):
             full_text = chapter.get('full_text', '')
             if not full_text:
                 return ""
@@ -236,16 +236,15 @@ class ChapterMapper:
             parts = full_text.split('\n\n', 1)
             body = parts[1] if len(parts) > 1 else full_text
             sentences = body.replace('\n', ' ').split('. ')
+            if not sentences:
+                return ""
 
-            first_part = ' '.join(sentences[:sentence_count])[:400]
-
-            if len(sentences) >= sentence_count:
-                last_part = ' '.join(sentences[-sentence_count:])[:400]
-            elif sentences:
-                last_part = sentences[-1][:200]
-            else:
-                last_part = ""
-
+            n = min(len(sentences), sentence_count)
+            if n == 0:
+                return ""
+            
+            first_part = ' '.join(sentences[:n])[:400]
+            last_part = ' '.join(sentences[-n:])[:400]
             return (first_part + " " + last_part).strip()
 
         src_signature = [chapter_signature(ch) for ch in self.source]
