@@ -38,7 +38,7 @@ class BBB:
         mapper = ChapterMapper(src_chapters, tgt_chapters, self.keep_unmatched_source_chapters, self.keep_unmatched_target_chapters)
         chapter_pairs = []
         if self.auto_match_chapter_threshold is not None:
-            chapter_pairs = mapper.run_auto(self.auto_match_chapter_threshold)
+            chapter_pairs = mapper.run_auto(threshold=self.auto_match_chapter_threshold)
         else:
             chapter_pairs = mapper.run_interactive()
         

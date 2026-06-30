@@ -223,12 +223,12 @@ class ChapterMapper:
             else:
                 print("Please answer y, n, or q.")
 
-    def run_auto(self, threshold: float = 0.5, gap_penalty: float = 0.3):
+    def run_auto(self, threshold: float = 0.5, gap_penalty: float = 0.3, signature_sentence_count: int = 5):
         """Automatically map source↔target by aligning first sentences."""
         from bertalign.bertalign import model_name
         model = SentenceTransformer(model_name)
 
-        def chapter_signature(chapter, sentence_count: int = 5):
+        def chapter_signature(chapter):
             full_text = chapter.get('full_text', '')
             if not full_text:
                 return ""
@@ -239,7 +239,7 @@ class ChapterMapper:
             if not sentences:
                 return ""
 
-            n = min(len(sentences), sentence_count)
+            n = min(len(sentences), signature_sentence_count)
             if n == 0:
                 return ""
             
