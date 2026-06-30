@@ -1,3 +1,6 @@
+from fast_ebook import epub
+import fast_ebook
+
 class BBB:
     def __init__(self,
                 source_epub_path,
@@ -25,8 +28,12 @@ class BBB:
         from bbb.chapter_mapper import ChapterMapper
         from bbb.chapter_extractor import ChapterExtractor
 
-        src_chapters = ChapterExtractor(self.source_epub_path).get_chapter_list()
-        tgt_chapters = ChapterExtractor(self.target_epub_path).get_chapter_list()
+        books = epub.read_epubs([self.source_epub_path, self.target_epub_path], workers=2)
+        if not books or len(books) < 2:
+            return
+
+        src_chapters = ChapterExtractor(books[0]).get_chapter_list()
+        tgt_chapters = ChapterExtractor(books[1]).get_chapter_list()
 
         mapper = ChapterMapper(src_chapters, tgt_chapters, self.keep_unmatched_source_chapters, self.keep_unmatched_target_chapters)
         chapter_pairs = []
@@ -35,5 +42,9 @@ class BBB:
         else:
             chapter_pairs = mapper.run_interactive()
         
-        if self.only_match_chapters:
+        if self.only_match_chapters or not chapter_pairs:
             return
+        
+        # aligner = ChapterAligner(chapter_pairs)
+        # aligner.run()
+        

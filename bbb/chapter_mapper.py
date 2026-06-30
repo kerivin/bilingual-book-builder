@@ -19,16 +19,20 @@ class ChapterMapper:
         terminal_width = shutil.get_terminal_size().columns
         print("─" * terminal_width)
 
+    def _chapter_title(self, chapters, idx):
+        if idx < 0 or idx >= len(chapters):
+            return "???"
+        return chapters[idx].get('title', f'Ch.{idx}')
+
+    def _chapter_preview(self, chapters, idx):
+        if idx < 0 or idx >= len(chapters):
+            return "???"
+        return chapters[idx].get('preview', '???')
+
     def _chapter_str(self, chapters, idx):
         if idx < 0 or idx >= len(chapters):
             return "???"
-        ch = chapters[idx]
-        title = ch.get('title', f'Ch.{idx}')
-        preview = ch.get('preview', '')
-        if preview:
-            return f"[{idx}] {title} — {preview}"
-        else:
-            return f"[{idx}] {title}"
+        return f"{self._chapter_title(chapters, idx)} — {self._chapter_preview(chapters, idx)}"
 
     def show_chapter_lists(self):
         print("\nSource chapters:")
@@ -37,16 +41,6 @@ class ChapterMapper:
         print("\nTarget chapters:")
         for ch in self.target:
             print(f"  {self._chapter_str(self.target, ch['index'])}")
-
-    def _chapter_title(self, chapters, idx):
-        if idx < 0 or idx >= len(chapters):
-            return ""
-        return chapters[idx].get('title', f'Ch.{idx}')
-
-    def _chapter_preview(self, chapters, idx):
-        if idx < 0 or idx >= len(chapters):
-            return ""
-        return chapters[idx].get('preview', '')
 
     def _show_chapter_lists_compact(self):
         max_len = max(self.source_count, self.target_count)
@@ -108,7 +102,7 @@ class ChapterMapper:
                 print(target_preview)
                 self._print_horizontal_line()
 
-    def _run_interactive(self):
+    def _run_interactive(self) -> bool:
         self.pairs = []
         self.unmatched_source = []
         self.unmatched_target = []
@@ -143,12 +137,12 @@ class ChapterMapper:
                     raw = input("[ENTER] Match / [S] Source Next Chapter / [T] Target Next Chapter / [B] Back / [Q] Quit: ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
                     print("\nAborted.")
-                    return None
+                    return False
                 action = raw
 
             if action == 'q':
                 print("Aborted by user.")
-                return None
+                return False
 
             if action == 'b':
                 if history:
@@ -196,6 +190,7 @@ class ChapterMapper:
                 continue
 
         self._show_chapter_mapping()
+        return True
 
     def _export_mapping(self):
         final = []
@@ -211,7 +206,7 @@ class ChapterMapper:
     
     def run_interactive(self):
         while True:
-            if self._run_interactive() is None:
+            if self._run_interactive() == False:
                 return None
             try:
                 confirm = input("Accept this mapping? [y]es / [n]o (redo) / [q]uit: ").strip().lower()
