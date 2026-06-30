@@ -11,7 +11,6 @@ class FilterMode(Enum):
 def _normalize(text: str) -> str:
     return " ".join(text.lower().split())
 
-
 def _sanitize_heading_text(raw: str) -> str:
     cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw).strip()
     if len(cleaned) > 100:
@@ -39,7 +38,7 @@ class ChapterExtractor:
             "full_text": full_text,
             "word_count": len(full_text.split()),
             "preview": " ".join(full_text.split()[:self.preview_words])
-            + ("…" if len(full_text.split()) > self.preview_words else ""),
+                + ("…" if len(full_text.split()) > self.preview_words else ""),
         }
 
     def _has_heading(self, doc) -> bool:
@@ -48,6 +47,17 @@ class ChapterExtractor:
             return False
         soup = BeautifulSoup(content.decode('utf-8', errors='replace'), "html.parser")
         return soup.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']) is not None
+
+    def _extract_body_text(self, soup: BeautifulSoup) -> str:
+        for tag in soup(["script", "style", "img", "figure", "svg", "canvas"]):
+            tag.decompose()
+        parts = []
+        for elem in soup.body.descendants if soup.body else soup.descendants:
+            if elem.name in ("p", "li", "blockquote", "div"):
+                text = elem.get_text(" ", strip=True)
+                if text:
+                    parts.append(text)
+        return "\n\n".join(parts)
 
     def _extract_native_toc(self, filter_mode: FilterMode) -> List[Dict[str, Any]]:
         if not self.book.toc:
@@ -116,11 +126,7 @@ class ChapterExtractor:
                     content = item.get_content()
                     if content:
                         soup = BeautifulSoup(content.decode('utf-8', errors='replace'), "html.parser")
-                        for tag in soup(["script", "style", "img", "figure", "svg", "canvas"]):
-                            tag.decompose()
-                        for h_tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
-                            h_tag.decompose()
-                        text = soup.get_text(" ", strip=True)
+                        text = self._extract_body_text(soup)
                         if text:
                             parts.append(text)
 
