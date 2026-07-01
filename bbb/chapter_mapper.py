@@ -241,7 +241,7 @@ class ChapterMapper:
             
             first_part = ' '.join(sentences[:n])[:400]
             last_part = ' '.join(sentences[-n:])[:400]
-            return (first_part + " " + last_part).strip()
+            return (first_part + " [SEP] " + last_part).strip()
 
         src_signature = [chapter_signature(ch) for ch in self.source]
         tgt_signature = [chapter_signature(ch) for ch in self.target]
