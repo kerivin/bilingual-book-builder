@@ -38,8 +38,10 @@ class ChapterAligner:
             tgt_sents = model.tgt_sents
             aligned = []
             for align in model.result:
-                src_seg = ' '.join(src_sents[i] for i in align.src)
-                tgt_seg = ' '.join(tgt_sents[i] for i in align.tgt)
+                # bertalign returns a tuple: (src_indices, tgt_indices)
+                src_indices, tgt_indices = align
+                src_seg = ' '.join(model.src_sents[i] for i in src_indices)
+                tgt_seg = ' '.join(model.tgt_sents[i] for i in tgt_indices)
                 aligned.append({'source': src_seg, 'target': tgt_seg})
             return aligned
         except Exception as e:

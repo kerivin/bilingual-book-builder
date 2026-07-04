@@ -157,7 +157,7 @@ class BookBuilder:
             if source_info is None and target_info is None:
                 continue
 
-            alignment = block.get('alignment', [])
+            alignment = block.get('alignment') or []
             file_name = f"{base_dir}chap_{block_idx:03d}.xhtml"
             uid = f"chap_{block_idx:03d}"
 
