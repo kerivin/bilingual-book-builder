@@ -24,18 +24,18 @@ class BBB:
         self.keep_unmatched_target_chapters = keep_unmatched_target_chapters
     
     def run(self):
-        # from bertalign.bertalign import Bertalign
         from bbb.chapter_mapper import ChapterMapper
         from bbb.chapter_extractor import ChapterExtractor
+        from bbb.chapter_aligner import ChapterAligner
 
         books = epub.read_epubs([self.source_epub_path, self.target_epub_path], workers=2)
         if not books or len(books) < 2:
             return
 
-        src_chapters = ChapterExtractor(books[0]).get_chapter_list()
-        tgt_chapters = ChapterExtractor(books[1]).get_chapter_list()
+        source_chapters = ChapterExtractor(books[0]).get_chapter_list()
+        target_chapters = ChapterExtractor(books[1]).get_chapter_list()
 
-        mapper = ChapterMapper(src_chapters, tgt_chapters, self.keep_unmatched_source_chapters, self.keep_unmatched_target_chapters)
+        mapper = ChapterMapper(source_chapters, target_chapters, self.keep_unmatched_source_chapters, self.keep_unmatched_target_chapters)
         chapter_pairs = []
         if self.auto_match_chapter_threshold is not None:
             chapter_pairs = mapper.run_auto(threshold=self.auto_match_chapter_threshold)
@@ -45,6 +45,6 @@ class BBB:
         if self.only_match_chapters or not chapter_pairs:
             return
         
-        # aligner = ChapterAligner(chapter_pairs)
-        # aligner.run()
+        aligner = ChapterAligner(source_chapters, target_chapters, chapter_pairs, self.source_language, self.target_language, self.threads)
+        aligner.run()
         

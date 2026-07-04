@@ -177,6 +177,6 @@ class ChapterExtractor:
 
             chapters.append(self._create_chapter(title, body))
 
-        for i, section in enumerate(chapters):
-            section["index"] = i
+        for i, chapter in enumerate(chapters):
+            chapter["index"] = i
         return chapters
