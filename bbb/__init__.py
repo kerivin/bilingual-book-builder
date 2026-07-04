@@ -26,6 +26,7 @@ def main() -> int:
 		args.target,
 		args.source_language,
 		args.target_language,
+		args.output,
 		args.threads,
 		args.auto_match_chapters,
 		args.only_match_chapters,

@@ -4,7 +4,7 @@ from enum import IntEnum
 from sentence_transformers import SentenceTransformer
 
 class ChapterMapper:
-    def __init__(self, source_chapters, target_chapters, keep_unmatched_source_chapters, keep_unmatched_target_chapters):
+    def __init__(self, source_chapters, target_chapters, keep_unmatched_source_chapters: bool, keep_unmatched_target_chapters: bool):
         self.source = source_chapters
         self.target = target_chapters
         self.keep_unmatched_source_chapters = keep_unmatched_source_chapters
@@ -123,6 +123,40 @@ class ChapterMapper:
                 print("-")
                 print(target_preview)
                 self._print_horizontal_line()
+    
+    def _export_mapping(self):
+        src_in_pairs = {s for s, t in self.chapter_pairs}
+        tgt_in_pairs = {t for s, t in self.chapter_pairs}
+        all_src = set(range(len(self.source)))
+        all_tgt = set(range(len(self.target)))
+
+        unmatched_src = sorted(all_src - src_in_pairs) if self.keep_unmatched_source_chapters else []
+        unmatched_tgt = sorted(all_tgt - tgt_in_pairs) if self.keep_unmatched_target_chapters else []
+
+        pairs_sorted = sorted(self.chapter_pairs, key=lambda p: p[0])
+
+        ordered_chapters = []
+        prev_s = -1
+        prev_t = -1
+
+        for s, t in pairs_sorted:
+            for src_idx in unmatched_src:
+                if prev_s < src_idx < s:
+                    ordered_chapters.append((src_idx, None))
+            for tgt_idx in unmatched_tgt:
+                if prev_t < tgt_idx < t:
+                    ordered_chapters.append((None, tgt_idx))
+            ordered_chapters.append((s, t))
+            prev_s, prev_t = s, t
+
+        for src_idx in unmatched_src:
+            if src_idx > prev_s:
+                ordered_chapters.append((src_idx, None))
+        for tgt_idx in unmatched_tgt:
+            if tgt_idx > prev_t:
+                ordered_chapters.append((None, tgt_idx))
+
+        return ordered_chapters
 
     def _run_interactive(self) -> bool:
         self.chapter_pairs = []
@@ -211,25 +245,13 @@ class ChapterMapper:
 
         self._show_chapter_mapping()
         return True
-
-    def _export_mapping(self):
-        final = []
-        for source_chapter, target_chapter in self.chapter_pairs:
-            final.append((source_chapter, target_chapter))
-        if self.keep_unmatched_source_chapters:
-            for s in sorted(self.unmatched_source_chapters):
-                final.append((s, None))
-        if self.keep_unmatched_target_chapters:
-            for t in sorted(self.unmatched_target_chapters):
-                final.append((None, t))
-        return final
     
     def run_interactive(self):
         while True:
             if self._run_interactive() == False:
                 return None
             try:
-                confirm = input("Accept this mapping? [y]es / [n]o (redo) / [q]uit: ").strip().lower()
+                confirm = input("Accept this mapping? [Y]es / [N]o (redo) / [Q]uit: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 return None
             if confirm in ('y', 'yes', ''):
@@ -270,7 +292,6 @@ class ChapterMapper:
         src_embs = model.encode(src_signature, convert_to_numpy = True)
         tgt_embs = model.encode(tgt_signature, convert_to_numpy = True)
 
-        # Normalise
         src_embs = src_embs / np.linalg.norm(src_embs, axis = 1, keepdims = True)
         tgt_embs = tgt_embs / np.linalg.norm(tgt_embs, axis = 1, keepdims = True)
 
@@ -311,7 +332,6 @@ class ChapterMapper:
                 dp[i, j] = best
                 back[i, j] = best_pointer
 
-        # Traceback
         i, j = S, T
         chapter_pairs = []
         while i > 0 or j > 0:
@@ -330,11 +350,10 @@ class ChapterMapper:
                 j -= 1
                 self.unmatched_target_chapters.append(j)
 
-        # Reverse because we collected from end to start
         chapter_pairs.reverse()
         self.unmatched_source_chapters.reverse()
         self.unmatched_target_chapters.reverse()
 
         self.chapter_pairs = chapter_pairs
         self._show_chapter_mapping()
-        return chapter_pairs
+        return self._export_mapping()

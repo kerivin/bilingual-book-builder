@@ -1,7 +1,8 @@
 import re
 from typing import List, Dict, Any
 from bs4 import BeautifulSoup
-from fast_ebook import epub, ITEM_DOCUMENT
+from fast_ebook import epub
+import fast_ebook
 from enum import Enum
 
 class FilterMode(Enum):
@@ -32,13 +33,14 @@ class ChapterExtractor:
             return chapters
         return self._extract_via_headers()
 
-    def _create_chapter(self, title, full_text):
+    def _create_chapter(self, title, full_text, item_id=None):
         return {
             "title": title,
             "full_text": full_text,
             "word_count": len(full_text.split()),
             "preview": " ".join(full_text.split()[:self.preview_words])
                 + ("…" if len(full_text.split()) > self.preview_words else ""),
+            "item_id": item_id
         }
 
     def _has_heading(self, doc) -> bool:
@@ -134,7 +136,7 @@ class ChapterExtractor:
             if len(full_text) < self.min_chars:
                 continue
 
-            chapters.append(self._create_chapter(entry["title"], full_text))
+            chapters.append(self._create_chapter(entry["title"], full_text, spine_idrefs[start]))
 
         for i, chapter in enumerate(chapters):
             chapter["index"] = i
