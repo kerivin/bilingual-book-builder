@@ -21,7 +21,7 @@ class ChapterMapper:
     def _chapter_title(self, chapters, idx):
         if idx < 0 or idx >= len(chapters):
             return "???"
-        return chapters[idx].get('title', f'Ch.{idx}')
+        return chapters[idx].get('toc_title', f'Ch.{idx}')
 
     def _chapter_preview(self, chapters, idx):
         if idx < 0 or idx >= len(chapters):

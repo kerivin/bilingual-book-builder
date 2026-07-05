@@ -62,7 +62,7 @@ class BookBuilder:
                 new_book.add_item(css)
                 css_links.append(item.get_name())
         return css_links
-    
+
     def _copy_metadata(self, new_book: epub.EpubBook):
         def get_metadata(book, key):
             return [val[0] for val in book.get_metadata('DC', key)] if book else []
@@ -186,21 +186,22 @@ class BookBuilder:
             uid="columns_css",
             file_name=base_dir + "columns.css",
             content=b"""
-            .two-column-table { 
-                width: 100%; 
-                border-collapse: collapse; 
-                table-layout: fixed; 
+            .two-column-table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
             }
-            .two-column-table td { 
-                display: table-cell !important; 
-                vertical-align: top; 
-                padding: 0.3em 1em; 
-                width: 50%; 
+            .two-column-table td {
+                display: table-cell !important;
+                vertical-align: top;
+                padding: 0.3em 1em;
+                width: 50%;
             }
-            .col-heading { 
-                font-weight: bold; 
-                text-align: center; 
-                margin: 0.5em 0; 
+            .col-heading {
+                font-weight: bold;
+                text-align: center;
+                white-space: pre-wrap;
+                margin: 0.5em 0;
             }
             """
         )
@@ -225,27 +226,36 @@ class BookBuilder:
                 source_title = source_info.get('title', 'Source')
                 target_title = target_info.get('title', 'Target')
                 print(f"Building {source_title} - {target_title}...")
+
                 header_row = f'<tr class="title-row"><td class="col-left"><h2 class="col-heading">{source_title}</h2></td><td class="col-right"><h2 class="col-heading">{target_title}</h2></td></tr>'
                 body_html = self._build_two_column_html(alignment, header_row)
                 item = self._create_xhtml_item(new_book, file_name, f"{source_title} / {target_title}", body_html, css_links, uid)
                 new_spine_ids.append(item.get_id())
-                toc_links.append(epub.Link(item.get_name(), target_title, item.get_id()))
+
+                toc_title = target_info.get('toc_title', target_title.replace('\n', ' '))
+                toc_links.append(epub.Link(item.get_name(), toc_title, item.get_id()))
 
             elif source_info is not None:
                 title = source_info.get('title', f'Chapter {block_idx}')
                 print(f"Building source {title}...")
+
                 body = self._text_to_paragraphs(source_info.get('text', ''))
                 item = self._create_xhtml_item(new_book, file_name, title, f'<div class="source-only">{body}</div>', css_links, uid)
                 new_spine_ids.append(item.get_id())
+
+                toc_title = source_info.get('toc_title', title.replace('\n', ' '))
                 toc_links.append(epub.Link(item.get_name(), title, item.get_id()))
 
             elif target_info is not None:
                 title = target_info.get('title', f'Chapter {block_idx}')
                 print(f"Building target {title}...")
+
                 body = self._text_to_paragraphs(target_info.get('text', ''))
                 item = self._create_xhtml_item(new_book, file_name, title, f'<div class="target-only">{body}</div>', css_links, uid)
                 new_spine_ids.append(item.get_id())
-                toc_links.append(epub.Link(item.get_name(), title, item.get_id()))
+
+                toc_title = target_info.get('toc_title', title.replace('\n', ' '))
+                toc_links.append(epub.Link(item.get_name(), toc_title, item.get_id()))
 
         new_book.add_item(epub.EpubNcx())
         new_book.add_item(epub.EpubNav())
@@ -253,5 +263,5 @@ class BookBuilder:
         new_book.spine = new_spine_ids
         new_book.toc = toc_links
 
-        print("Book build finished!")
+        print("Book is ready!")
         return new_book

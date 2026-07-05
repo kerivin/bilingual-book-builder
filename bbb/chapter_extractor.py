@@ -9,15 +9,6 @@ class FilterMode(Enum):
     HEADING = 0
     NOT_NUMBER = 1
 
-def _normalize(text: str) -> str:
-    return " ".join(text.lower().split())
-
-def _sanitize_heading_text(raw: str) -> str:
-    cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw).strip()
-    if len(cleaned) > 100:
-        cleaned = " ".join(cleaned.split()[:6]) + "…"
-    return cleaned if cleaned else raw[:80]
-
 class ChapterExtractor:
     def __init__(self, book: epub.EpubBook, preview_words: int = 20, min_chars: int = 200):
         self.book = book
@@ -33,9 +24,10 @@ class ChapterExtractor:
             return chapters
         return self._extract_via_headers()
 
-    def _create_chapter(self, title, full_text, item_id=None):
+    def _create_chapter(self, title, toc_title, full_text, item_id=None):
         return {
-            "title": title,
+            "title": re.sub(r'\n\s*\n+', '\n', title).strip(),
+            "toc_title": toc_title,
             "full_text": full_text,
             "word_count": len(full_text.split()),
             "preview": " ".join(full_text.split()[:self.preview_words])
@@ -84,7 +76,7 @@ class ChapterExtractor:
         entries = []
         for title, href in flat_entries:
             if filter_mode == FilterMode.NOT_NUMBER:
-                if re.fullmatch(r"[\d]+\.?", _normalize(title)):
+                if re.fullmatch(r"[\d]+\.?", " ".join(title.lower().split())):
                     continue
 
             doc = self.book.get_item_with_href(href)
@@ -136,7 +128,21 @@ class ChapterExtractor:
             if len(full_text) < self.min_chars:
                 continue
 
-            chapters.append(self._create_chapter(entry["title"], full_text, spine_idrefs[start]))
+            heading_text = None
+            start_idref = spine_idrefs[start]
+            start_item = self.book.get_item_with_id(start_idref)
+            if start_item:
+                content = start_item.get_content()
+                if content:
+                    soup = BeautifulSoup(content.decode('utf-8', errors='replace'), "html.parser")
+                    h_tag = soup.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+                    if h_tag:
+                        raw_heading = h_tag.get_text(separator='\n').strip()
+                        cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw_heading)
+                        heading_text = cleaned if cleaned else raw_heading
+
+            title = heading_text if heading_text else entry["title"]
+            chapters.append(self._create_chapter(title, entry["title"], full_text, spine_idrefs[start]))
 
         for i, chapter in enumerate(chapters):
             chapter["index"] = i
@@ -158,9 +164,10 @@ class ChapterExtractor:
                 tag.decompose()
 
             for h_tag in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
-                raw_title = " ".join(h_tag.stripped_strings)
-                clean_title = _sanitize_heading_text(raw_title)
-                heading_positions.append((clean_title, len(all_text)))
+                raw_heading = h_tag.get_text(separator='\n').strip()
+                cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw_heading)
+                title = cleaned if cleaned else raw_heading
+                heading_positions.append((title, len(all_text)))
 
             text = soup.get_text(" ", strip=True)
             if text:
@@ -177,7 +184,7 @@ class ChapterExtractor:
             if len(body) < self.min_chars:
                 continue
 
-            chapters.append(self._create_chapter(title, body))
+            chapters.append(self._create_chapter(title, title, body))
 
         for i, chapter in enumerate(chapters):
             chapter["index"] = i
