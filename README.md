@@ -9,6 +9,13 @@ Usage: `python -m bbb -s original.epub -t translation.epub`
 
 <br clear="left"/>
 
+### Prerequisites
+
+- Python (tested on 3.14)
+- pip
+- git
+
+
 ### Installation
 ```
 git clone https://github.com/kerivin/bilingual-book-builder.git
