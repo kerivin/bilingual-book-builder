@@ -95,7 +95,15 @@ class BookBuilder:
             new_book.set_language(languages[0][0])
         for creator in self.target_book.get_metadata('DC', 'creator'):
             attrs = creator[1] if len(creator) > 1 else {}
-            new_book.add_author(creator[0], **attrs)
+            known_kwargs = {}
+            if 'opf:role' in attrs:
+                known_kwargs['role'] = attrs['opf:role']
+            if 'opf:file-as' in attrs:
+                known_kwargs['file_as'] = attrs['opf:file-as']
+            try:
+                new_book.add_author(creator[0], **known_kwargs)
+            except TypeError:
+                new_book.add_author(creator[0])
         for publisher in self.target_book.get_metadata('DC', 'publisher'):
             new_book.add_metadata('DC', 'publisher', publisher[0])
         for date in self.target_book.get_metadata('DC', 'date'):
@@ -106,7 +114,6 @@ class BookBuilder:
 
         self._copy_cover(new_book)
         css_links = self._copy_styles(new_book)
-        self._copy_other_items(new_book)
 
         base_dir = self._get_base_dir()
         col_css = epub.EpubCss(
@@ -151,7 +158,7 @@ class BookBuilder:
             if source_info is not None and target_info is not None:
                 source_title = source_info.get('title', 'Source')
                 target_title = target_info.get('title', 'Target')
-                # print(f"Building {source_title} - {target_title}...")
+                print(f"Building {source_title} - {target_title}...")
                 header_row = f'<tr class="title-row"><td class="col-left"><h2 class="col-heading">{source_title}</h2></td><td class="col-right"><h2 class="col-heading">{target_title}</h2></td></tr>'
                 body_html = self._build_two_column_html(alignment, header_row)
                 item = self._create_xhtml_item(new_book, file_name, f"{source_title} / {target_title}", body_html, css_links, uid)
@@ -160,7 +167,7 @@ class BookBuilder:
 
             elif source_info is not None:
                 title = source_info.get('title', f'Chapter {block_idx}')
-                # print(f"Building source {title}...")
+                print(f"Building source {title}...")
                 body = self._text_to_paragraphs(source_info.get('text', ''))
                 item = self._create_xhtml_item(new_book, file_name, title, f'<div class="source-only">{body}</div>', css_links, uid)
                 new_spine_ids.append(item.get_id())
@@ -168,7 +175,7 @@ class BookBuilder:
 
             elif target_info is not None:
                 title = target_info.get('title', f'Chapter {block_idx}')
-                # print(f"Building target {title}...")
+                print(f"Building target {title}...")
                 body = self._text_to_paragraphs(target_info.get('text', ''))
                 item = self._create_xhtml_item(new_book, file_name, title, f'<div class="target-only">{body}</div>', css_links, uid)
                 new_spine_ids.append(item.get_id())
@@ -180,4 +187,5 @@ class BookBuilder:
         new_book.spine = new_spine_ids
         new_book.toc = toc_links
 
+        print("Book build finished!")
         return new_book
