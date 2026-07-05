@@ -254,30 +254,27 @@ class ChapterMapper:
             else:
                 print("Please answer y, n, or q.")
 
-    def run_auto(self, threshold: float = 0.5, gap_penalty: float = 0.3, signature_sentence_count: int = 5):
+    def run_auto(self, threshold: float = 0.5):
         from bertalign.bertalign import model_name
         from sentence_transformers import SentenceTransformer
 
         model = SentenceTransformer(model_name)
 
         def chapter_signature(chapter):
+            title = chapter.get('toc_title', '')
             full_text = chapter.get('full_text', '')
             if not full_text:
-                return ""
+                return title
 
-            parts = full_text.split('\n\n', 1)
-            body = parts[1] if len(parts) > 1 else full_text
-            sentences = body.replace('\n', ' ').split('. ')
-            if not sentences:
-                return ""
+            text = full_text.replace('\n', ' ').strip()
 
-            n = min(len(sentences), signature_sentence_count)
-            if n == 0:
-                return ""
-            
-            first_part = ' '.join(sentences[:n])[:400]
-            last_part = ' '.join(sentences[-n:])[:400]
-            return (first_part + " [SEP] " + last_part).strip()
+            length = 1000
+            if len(text) <= 2 * length:
+                body = text
+            else:
+                body = text[:length] + ' [B_SEP] ' + text[-length:]
+
+            return (title + ' [T_SEP] ' + body).strip()
 
         src_signature = [chapter_signature(ch) for ch in self.source]
         tgt_signature = [chapter_signature(ch) for ch in self.target]
@@ -308,17 +305,17 @@ class ChapterMapper:
                 best = -1e9
                 best_pointer = None
                 if i > 0 and j > 0:
-                    score = dp[i-1, j-1] + (sim[i-1, j-1] if sim[i-1, j-1] >= threshold else -gap_penalty)
+                    score = dp[i-1, j-1] + sim[i-1, j-1]
                     if score > best:
                         best = score
                         best_pointer = MatchDirection.DIAGONAL
                 if i > 0:
-                    score = dp[i-1, j] - gap_penalty
+                    score = dp[i-1, j]
                     if score > best:
                         best = score
                         best_pointer = MatchDirection.UP
                 if j > 0:
-                    score = dp[i, j-1] - gap_penalty
+                    score = dp[i, j-1]
                     if score > best:
                         best = score
                         best_pointer = MatchDirection.LEFT
@@ -333,7 +330,6 @@ class ChapterMapper:
                 if sim[i, j] >= threshold:
                     chapter_pairs.append((i, j))
                 else:
-                    # treated as gap – both unmatched
                     self.unmatched_source_chapters.append(i)
                     self.unmatched_target_chapters.append(j)
             elif back[i, j] == MatchDirection.UP:
