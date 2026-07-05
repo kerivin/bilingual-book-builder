@@ -31,11 +31,14 @@ class BBB:
     
     def run(self):
         books = epub.read_epubs([self.source_epub_path, self.target_epub_path], workers=2)
-        if not books or len(books) < 2:
+        if not books or len(books) != 2:
             return
 
         source_chapters = ChapterExtractor(book=books[0]).get_chapter_list()
         target_chapters = ChapterExtractor(book=books[1]).get_chapter_list()
+
+        if not source_chapters or not target_chapters:
+            return
 
         mapper = ChapterMapper(source_chapters, target_chapters, self.keep_unmatched_source_chapters, self.keep_unmatched_target_chapters)
         chapter_pairs = []
@@ -53,7 +56,7 @@ class BBB:
         if not aligned_chapters:
             return
         
-        builder = BookBuilder(target_book=books[1], blocks=aligned_chapters)
+        builder = BookBuilder(source_book=books[0], target_book=books[1], blocks=aligned_chapters)
         new_book = builder.run()
         if not new_book:
             return

@@ -5,7 +5,8 @@ from fast_ebook import epub
 import fast_ebook
 
 class BookBuilder:
-    def __init__(self, target_book: epub.EpubBook, blocks: List[Dict[str, Any]]):
+    def __init__(self, source_book: epub.EpubBook, target_book: epub.EpubBook, blocks: List[Dict[str, Any]]):
+        self.source_book = source_book
         self.target_book = target_book
         self.blocks = blocks
 
@@ -21,15 +22,33 @@ class BookBuilder:
         return os.path.dirname(href) + "/" if os.path.dirname(href) else ""
 
     def _copy_cover(self, new_book: epub.EpubBook) -> None:
-        for item in self.target_book.get_items():
-            if item.get_type() == epub.ITEM_COVER:
-                new_book.add_item(epub.EpubImage(
-                    uid=item.get_id(),
-                    file_name=item.get_name(),
-                    media_type=item.get_media_type(),
-                    content=item.get_content()
-                ))
+        cover_id = None
+        for meta in self.target_book.get_metadata('', 'meta'):
+            if isinstance(meta, tuple) and meta[1].get('name') == 'cover':
+                cover_id = meta[1].get('content')
                 break
+            elif isinstance(meta, dict) and meta.get('name') == 'cover':
+                cover_id = meta.get('content')
+                break
+
+        cover_item = None
+        if cover_id:
+            cover_item = self.target_book.get_item_with_id(cover_id)
+
+        if not cover_item:
+            for item in self.target_book.get_items():
+                if item.get_type() == epub.ITEM_COVER:
+                    cover_item = item
+                    break
+
+        if not cover_item:
+            for item in self.target_book.get_items():
+                if item.get_type() == epub.ITEM_IMAGE and 'cover' in item.get_name().lower():
+                    cover_item = item
+                    break
+
+        if cover_item:
+            new_book.set_cover(cover_item.get_name(), cover_item.get_content())
 
     def _copy_styles(self, new_book: epub.EpubBook) -> List[str]:
         css_links = []
@@ -43,6 +62,80 @@ class BookBuilder:
                 new_book.add_item(css)
                 css_links.append(item.get_name())
         return css_links
+    
+    def _copy_metadata(self, new_book: epub.EpubBook):
+        def get_metadata(book, key):
+            return [val[0] for val in book.get_metadata('DC', key)] if book else []
+
+        src_titles = get_metadata(self.source_book, 'title') if self.source_book else []
+        tgt_titles = get_metadata(self.target_book, 'title')
+        if src_titles and tgt_titles:
+            new_book.set_title(f"{src_titles[0]} / {tgt_titles[0]}")
+        elif tgt_titles:
+            new_book.set_title(tgt_titles[0])
+        elif src_titles:
+            new_book.set_title(src_titles[0])
+
+        for creator in self.source_book.get_metadata('DC', 'creator'):
+            attrs = creator[1] if len(creator) > 1 else {}
+            known_kwargs = {}
+            if 'opf:role' in attrs:
+                known_kwargs['role'] = attrs['opf:role']
+            if 'opf:file-as' in attrs:
+                known_kwargs['file_as'] = attrs['opf:file-as']
+            try:
+                new_book.add_author(creator[0], **known_kwargs)
+            except TypeError:
+                new_book.add_author(creator[0])
+        for creator in self.target_book.get_metadata('DC', 'creator'):
+            attrs = creator[1] if len(creator) > 1 else {}
+            known_kwargs = {}
+            if 'opf:role' in attrs:
+                known_kwargs['role'] = attrs['opf:role']
+            if 'opf:file-as' in attrs:
+                known_kwargs['file_as'] = attrs['opf:file-as']
+            try:
+                new_book.add_author(creator[0], **known_kwargs)
+            except TypeError:
+                new_book.add_author(creator[0])
+
+        tgt_langs = get_metadata(self.target_book, 'language')
+        if tgt_langs:
+            new_book.set_language(tgt_langs[0])
+
+        for lang in get_metadata(self.source_book, 'language'):
+            if lang not in get_metadata(self.target_book, 'language'):
+                new_book.add_metadata('DC', 'language', lang)
+
+        src_pubs = get_metadata(self.source_book, 'publisher')
+        tgt_pubs = get_metadata(self.target_book, 'publisher')
+        for pub in src_pubs + tgt_pubs:
+            new_book.add_metadata('DC', 'publisher', pub)
+
+        tgt_dates = get_metadata(self.target_book, 'date')
+        if tgt_dates:
+            for date in tgt_dates:
+                new_book.add_metadata('DC', 'date', date)
+        for date in get_metadata(self.source_book, 'date'):
+            new_book.add_metadata('DC', 'date', date)
+
+        for key in ('description', 'subject', 'contributor', 'rights'):
+            src_vals = get_metadata(self.source_book, key)
+            tgt_vals = get_metadata(self.target_book, key)
+            for val in src_vals + tgt_vals:
+                new_book.add_metadata('DC', key, val)
+        
+        identifier = None
+        target_identifiers = get_metadata(self.target_book, 'identifier')
+        if target_identifiers:
+            identifier = target_identifiers[0]
+        if not identifier:
+            source_identifiers = get_metadata(self.source_book, 'identifier')
+            if source_identifiers:
+                identifier = source_identifiers[0]
+        if not identifier:
+            identifier = f"urn:uuid:{uuid.uuid4()}"
+        new_book.set_identifier(identifier)
 
     def _create_xhtml_item(self, book: epub.EpubBook, file_name: str, title: str, body_html: str, css_links: List[str], uid: Optional[str] = None):
         if uid is None:
@@ -84,34 +177,7 @@ class BookBuilder:
     def run(self) -> epub.EpubBook:
         new_book = epub.EpubBook()
 
-        identifiers = self.target_book.get_metadata('DC', 'identifier')
-        if identifiers:
-            new_book.set_identifier(identifiers[0][0])
-        titles = self.target_book.get_metadata('DC', 'title')
-        if titles:
-            new_book.set_title(titles[0][0])
-        languages = self.target_book.get_metadata('DC', 'language')
-        if languages:
-            new_book.set_language(languages[0][0])
-        for creator in self.target_book.get_metadata('DC', 'creator'):
-            attrs = creator[1] if len(creator) > 1 else {}
-            known_kwargs = {}
-            if 'opf:role' in attrs:
-                known_kwargs['role'] = attrs['opf:role']
-            if 'opf:file-as' in attrs:
-                known_kwargs['file_as'] = attrs['opf:file-as']
-            try:
-                new_book.add_author(creator[0], **known_kwargs)
-            except TypeError:
-                new_book.add_author(creator[0])
-        for publisher in self.target_book.get_metadata('DC', 'publisher'):
-            new_book.add_metadata('DC', 'publisher', publisher[0])
-        for date in self.target_book.get_metadata('DC', 'date'):
-            new_book.add_metadata('DC', 'date', date[0])
-        for key in ('description', 'subject', 'contributor', 'rights'):
-            for val in self.target_book.get_metadata('DC', key):
-                new_book.add_metadata('DC', key, val[0])
-
+        self._copy_metadata(new_book)
         self._copy_cover(new_book)
         css_links = self._copy_styles(new_book)
 
