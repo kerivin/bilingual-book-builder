@@ -38,6 +38,8 @@ python -m bbb --help
 
 Typical usage:
 
+`python -m bbb --help`
+
 `python -m bbb -s original.epub -t translation.epub`
 
 `python -m bbb -s original.epub -t translation.epub -sl en -tl ru --threads 4 --keep-target-chapters`
