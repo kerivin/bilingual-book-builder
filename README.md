@@ -21,6 +21,9 @@ git clone https://github.com/kerivin/bilingual-book-builder.git
 cd bilingual-book-builder
 git submodule update --init --recursive
 
+python -m venv .venv
+source .venv/bin/activate
+
 pip install --upgrade pip
 pip install -r requirements.txt
 python -m bbb --help
