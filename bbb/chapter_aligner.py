@@ -1,10 +1,5 @@
 from typing import List, Dict, Any
-from enum import Enum
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-class FilterMode(Enum):
-    HEADING = 0
-    NOT_NUMBER = 1
 
 class ChapterAligner:
     def __init__(

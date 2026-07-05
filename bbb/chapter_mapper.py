@@ -1,7 +1,6 @@
 import shutil
 import numpy as np
 from enum import IntEnum
-from sentence_transformers import SentenceTransformer
 
 class ChapterMapper:
     def __init__(self, source_chapters, target_chapters, keep_unmatched_source_chapters: bool, keep_unmatched_target_chapters: bool):
@@ -33,14 +32,6 @@ class ChapterMapper:
         if idx < 0 or idx >= len(chapters):
             return "???"
         return f"{self._chapter_title(chapters, idx)} — {self._chapter_preview(chapters, idx)}"
-
-    def show_chapter_lists(self):
-        print("\nSource chapters:")
-        for ch in self.source:
-            print(f"  {self._chapter_str(self.source, ch['index'])}")
-        print("\nTarget chapters:")
-        for ch in self.target:
-            print(f"  {self._chapter_str(self.target, ch['index'])}")
 
     def _show_chapter_lists_compact(self):
         max_len = max(self.source_count, self.target_count)
@@ -265,6 +256,8 @@ class ChapterMapper:
 
     def run_auto(self, threshold: float = 0.5, gap_penalty: float = 0.3, signature_sentence_count: int = 5):
         from bertalign.bertalign import model_name
+        from sentence_transformers import SentenceTransformer
+
         model = SentenceTransformer(model_name)
 
         def chapter_signature(chapter):

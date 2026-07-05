@@ -44,16 +44,6 @@ class BookBuilder:
                 css_links.append(item.get_name())
         return css_links
 
-    def _copy_other_items(self, new_book: epub.EpubBook) -> None:
-        spine_ids = {idref for idref, _ in self.target_book.get_spine()}
-        for item in self.target_book.get_items():
-            if item.get_id() in spine_ids and item.get_type() == epub.ITEM_DOCUMENT:
-                continue
-            if item.get_type() in (epub.ITEM_COVER, epub.ITEM_STYLE, epub.ITEM_NAVIGATION):
-                continue
-            # fonts, scripts, etc. – not critical
-            pass
-
     def _create_xhtml_item(self, book: epub.EpubBook, file_name: str, title: str, body_html: str, css_links: List[str], uid: Optional[str] = None):
         if uid is None:
             uid = f"chap_{uuid.uuid4().hex[:8]}"
@@ -94,7 +84,6 @@ class BookBuilder:
     def run(self) -> epub.EpubBook:
         new_book = epub.EpubBook()
 
-        # Metadata
         identifiers = self.target_book.get_metadata('DC', 'identifier')
         if identifiers:
             new_book.set_identifier(identifiers[0][0])
@@ -115,12 +104,10 @@ class BookBuilder:
             for val in self.target_book.get_metadata('DC', key):
                 new_book.add_metadata('DC', key, val[0])
 
-        # Copy cover and styles
         self._copy_cover(new_book)
         css_links = self._copy_styles(new_book)
         self._copy_other_items(new_book)
 
-        # Add our two‑column CSS (table-based, transparent split, strong override)
         base_dir = self._get_base_dir()
         col_css = epub.EpubCss(
             uid="columns_css",
@@ -187,11 +174,9 @@ class BookBuilder:
                 new_spine_ids.append(item.get_id())
                 toc_links.append(epub.Link(item.get_name(), title, item.get_id()))
 
-        # Add navigation
         new_book.add_item(epub.EpubNcx())
         new_book.add_item(epub.EpubNav())
 
-        # Set spine and TOC
         new_book.spine = new_spine_ids
         new_book.toc = toc_links
 

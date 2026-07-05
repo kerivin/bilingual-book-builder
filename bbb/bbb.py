@@ -16,7 +16,7 @@ class BBB:
                 auto_match_chapter_threshold = None,
                 only_match_chapters = False,
                 keep_unmatched_source_chapters = False,
-                keep_unmatched_target_chapters = True
+                keep_unmatched_target_chapters = False
             ):
         self.source_epub_path = source_epub_path
         self.target_epub_path = target_epub_path
