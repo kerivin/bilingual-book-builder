@@ -254,12 +254,7 @@ class ChapterMapper:
             else:
                 print("Please answer y, n, or q.")
 
-    def run_auto(self, threshold: float = 0.5):
-        from bertalign.bertalign import model_name
-        from sentence_transformers import SentenceTransformer
-
-        model = SentenceTransformer(model_name)
-
+    def run_auto(self, model, threshold: float = 0.5):
         def chapter_signature(chapter):
             title = chapter.get('toc_title', '')
             full_text = chapter.get('full_text', '')

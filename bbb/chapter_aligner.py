@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from bertalign.bertalign.encoder import Encoder
 
 class ChapterAligner:
     def __init__(
@@ -9,7 +10,8 @@ class ChapterAligner:
         chapter_pairs,
         source_language,
         target_language,
-        threads: int
+        threads: int,
+        model
     ):
         self.source_chapters = source_chapters
         self.target_chapters = target_chapters
@@ -17,6 +19,7 @@ class ChapterAligner:
         self.source_language = source_language
         self.target_language = target_language
         self.threads = threads
+        self.model_encoder = Encoder(model)
 
     def _align_pair(self, source_text: str, target_text: str) -> List[Dict[str, str]]:
         if not source_text.strip() or not target_text.strip():
@@ -24,18 +27,19 @@ class ChapterAligner:
 
         from bertalign.bertalign import Bertalign
         try:
-            model = Bertalign(
+            aligner = Bertalign(
+                self.model_encoder,
                 source_text, target_text,
                 self.source_language, self.target_language
             )
-            model.align_sents()
+            aligner.align_sents()
             # model.print_sents()
             aligned = []
-            for align in model.result:
+            for align in aligner.result:
                 # bertalign returns a tuple: (src_indices, tgt_indices)
                 src_indices, tgt_indices = align
-                src_seg = ' '.join(model.src_sents[i] for i in src_indices)
-                tgt_seg = ' '.join(model.tgt_sents[i] for i in tgt_indices)
+                src_seg = ' '.join(aligner.src_sents[i] for i in src_indices)
+                tgt_seg = ' '.join(aligner.tgt_sents[i] for i in tgt_indices)
                 aligned.append({'source': src_seg, 'target': tgt_seg})
             return aligned
         except Exception as e:

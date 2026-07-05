@@ -16,7 +16,8 @@ class BBB:
                 auto_match_chapter_threshold = None,
                 only_match_chapters = False,
                 keep_unmatched_source_chapters = False,
-                keep_unmatched_target_chapters = False
+                keep_unmatched_target_chapters = False,
+                model = 'LaBSE'
             ):
         self.source_epub_path = source_epub_path
         self.target_epub_path = target_epub_path
@@ -28,7 +29,12 @@ class BBB:
         self.only_match_chapters = only_match_chapters
         self.keep_unmatched_source_chapters = keep_unmatched_source_chapters
         self.keep_unmatched_target_chapters = keep_unmatched_target_chapters
+        self.model = model
     
+    def _create_sentence_transformer(self):
+        from sentence_transformers import SentenceTransformer
+        return SentenceTransformer(self.model)
+
     def run(self):
         books = epub.read_epubs([self.source_epub_path, self.target_epub_path], workers=2)
         if not books or len(books) != 2:
@@ -40,17 +46,36 @@ class BBB:
         if not source_chapters or not target_chapters:
             return
 
-        mapper = ChapterMapper(source_chapters, target_chapters, self.keep_unmatched_source_chapters, self.keep_unmatched_target_chapters)
+        mapper = ChapterMapper(
+            source_chapters,
+            target_chapters,
+            self.keep_unmatched_source_chapters,
+            self.keep_unmatched_target_chapters
+        )
+        
+        sentence_transformer = None
         chapter_pairs = []
         if self.auto_match_chapter_threshold is not None:
-            chapter_pairs = mapper.run_auto(threshold=self.auto_match_chapter_threshold)
+            sentence_transformer = self._create_sentence_transformer()
+            chapter_pairs = mapper.run_auto(model=sentence_transformer, threshold=self.auto_match_chapter_threshold)
         else:
             chapter_pairs = mapper.run_interactive()
         
         if self.only_match_chapters or not chapter_pairs:
             return
         
-        aligner = ChapterAligner(source_chapters, target_chapters, chapter_pairs, self.source_language, self.target_language, self.threads)
+        if sentence_transformer is None:
+            sentence_transformer = self._create_sentence_transformer()
+
+        aligner = ChapterAligner(
+            source_chapters,
+            target_chapters,
+            chapter_pairs,
+            self.source_language,
+            self.target_language,
+            self.threads,
+            sentence_transformer
+        )
         aligned_chapters = aligner.run()
 
         if not aligned_chapters:
