@@ -43,6 +43,7 @@ python -m bbb --help
 | `--only-match-chapters` | Exit after auto-match chapters.<br>Requires `--auto-match-chapters` option.<br>Useful for checking what auto-match would look like without creating a ePub | `--only-match-chapters` |
 | `--keep-source-chapters` | Keep source (original) chapters with no matching target (translation) chapters.<br>Default: off if omitted | `--keep-source-chapters` |
 | `--keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: off if omitted | `--keep-target-chapters` |
+| `--model` | Name or path to sentence embedding model<br>Default: [LaBSE](https://huggingface.co/sentence-transformers/LaBSE) | `--model "/home/models/model"` |
 
 
 Typical usage:
