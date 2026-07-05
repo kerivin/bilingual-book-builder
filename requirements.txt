@@ -1,5 +1,5 @@
-fast-ebook
-bs4
+fast-ebook==0.2.0
+bs4==0.0.2
 
 -r ./bertalign/requirements.txt
 -e ./bertalign
