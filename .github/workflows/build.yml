@@ -46,7 +46,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --onefile --name bbb __main__.py
+          pyinstaller --onefile --name bbb bbb/__main__.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
