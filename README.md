@@ -50,6 +50,14 @@ Typical usage:
 
 `python -m bbb -s original.epub -t translation.epub -sl en -tl ru --threads 4 --keep-target-chapters`
 
+
 ### Disclaimer
 
 The quality of the new book depends on the quality of the provided books. Some have a weird table of contents or don't have it at all, some duplicate a chapter title at the beginning of the chapter, some have no metadata, etc. Make sure the two books to merge are not broken.
+
+The code is AI-assisted.
+
+### Known issues
+
+- Auto-match chapters works rather bad
+- Footnotes, endnotes, bold, italics, etc are lost
