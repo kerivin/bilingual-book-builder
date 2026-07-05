@@ -35,8 +35,8 @@ python -m bbb --help
 | `-sl SOURCE_LANGUAGE`<br>`--source-language SOURCE_LANGUAGE` | Source (original) language code.<br>Auto-detect if omitted | `-sl en`<br>`--source-language en` |
 | `-tl TARGET_LANGUAGE`<br>`--target-language TARGET_LANGUAGE` | Target (translation) language code.<br>Auto-detect if omitted | `-tl ru`<br>`--target-language ru` |
 | `-o FILENAME`<br>`--output FILENAME` | New ePub name.<br>Default: bilingual.epub | `-o book.epub`<br>`--output book.epub` |
-| `--threads THREADS` | Number of processing threads.<br>Default: 1 | `--threads 4` |
-| `--auto-match-chapters [THRESHOLD]` | Auto-match chapters instead of manual matching.<br>Default: off.<br>Not recommended to use. | `--auto-match-chapters`<br>`--auto-match-chapters 0.6` |
+| `--threads THREADS` | Number of parallel threads.<br>Default: 1 | `--threads 4` |
+| `--auto-match-chapters [THRESHOLD]` | Auto-match chapters instead of manual matching.<br>Default: off | `--auto-match-chapters`<br>`--auto-match-chapters 0.8` |
 | `--only-match-chapters` | Exit after auto-match chapters.<br>Requires `--auto-match-chapters` option.<br>Useful for checking what auto-match would look like without creating a ePub | `--only-match-chapters` |
 | `--keep-source-chapters` | Keep source (original) chapters with no matching target (translation) chapters.<br>Default: off if omitted | `--keep-source-chapters` |
 | `--keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: off if omitted | `--keep-target-chapters` |
@@ -59,6 +59,6 @@ The code is AI-assisted.
 
 ### Known issues
 
-- Auto-match chapters works rather bad
+- Chapter auto-match is unreliable
 - Footnotes, endnotes, bold, italics, etc are lost
 - Paragraphs are indistinguishable
