@@ -1,6 +1,7 @@
 from bertalign.bertalign import Bertalign
 from typing import List, Dict, Any
 from enum import Enum
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class FilterMode(Enum):
     HEADING = 0
@@ -34,8 +35,6 @@ class ChapterAligner:
             )
             model.align_sents()
             # model.print_sents()
-            src_sents = model.src_sents
-            tgt_sents = model.tgt_sents
             aligned = []
             for align in model.result:
                 # bertalign returns a tuple: (src_indices, tgt_indices)
@@ -50,7 +49,7 @@ class ChapterAligner:
 
     def run(self) -> List[Dict[str, Any]]:
         """
-        Returns a list of chapter blocks in the exact order of self.chapter_order.
+        Returns a list of chapter blocks in the exact order of self.chapter_pairs.
         Each block:
           {
             'source': { 'title', 'text', 'index' } or None,
@@ -59,8 +58,8 @@ class ChapterAligner:
           }
         """
         output = []
+
         for source_index, target_index in self.chapter_pairs:
-            
             block = {'source': None, 'target': None, 'alignment': None}
 
             if source_index is not None:
@@ -70,7 +69,7 @@ class ChapterAligner:
                     'text': ch['full_text'] if target_index is None else None,
                     'index': ch['index']
                 }
-                
+
             if target_index is not None:
                 ch = self.target_chapters[target_index]
                 block['target'] = {
@@ -78,12 +77,32 @@ class ChapterAligner:
                     'text': ch['full_text'] if source_index is None else None,
                     'index': ch['index']
                 }
-                
-            if source_index is not None and target_index is not None:
-                src_text = self.source_chapters[source_index]['full_text']
-                tgt_text = self.target_chapters[target_index]['full_text']
-                block['alignment'] = self._align_pair(src_text, tgt_text)
 
             output.append(block)
+
+        pairs_to_align = []
+        for idx, (src_idx, tgt_idx) in enumerate(self.chapter_pairs):
+            if src_idx is not None and tgt_idx is not None:
+                src_text = self.source_chapters[src_idx]['full_text']
+                tgt_text = self.target_chapters[tgt_idx]['full_text']
+                pairs_to_align.append((idx, src_text, tgt_text))
+
+        if self.threads > 1 and pairs_to_align:
+            with ThreadPoolExecutor(max_workers=self.threads) as executor:
+                future_to_idx = {
+                    executor.submit(self._align_pair, src, tgt): (idx, src, tgt)
+                    for idx, src, tgt in pairs_to_align
+                }
+                for future in as_completed(future_to_idx):
+                    idx, src_text, tgt_text = future_to_idx[future]
+                    try:
+                        alignment = future.result()
+                    except Exception as e:
+                        print(f"Error aligning chapter pair {idx}: {e}")
+                        alignment = [{'source': src_text, 'target': tgt_text}]
+                    output[idx]['alignment'] = alignment
+        else:
+            for idx, src_text, tgt_text in pairs_to_align:
+                output[idx]['alignment'] = self._align_pair(src_text, tgt_text)
 
         return output

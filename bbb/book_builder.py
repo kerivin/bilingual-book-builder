@@ -164,7 +164,7 @@ class BookBuilder:
             if source_info is not None and target_info is not None:
                 source_title = source_info.get('title', 'Source')
                 target_title = target_info.get('title', 'Target')
-                print(f"Building {source_title}-{target_title}...")
+                # print(f"Building {source_title} - {target_title}...")
                 header_row = f'<tr class="title-row"><td class="col-left"><h2 class="col-heading">{source_title}</h2></td><td class="col-right"><h2 class="col-heading">{target_title}</h2></td></tr>'
                 body_html = self._build_two_column_html(alignment, header_row)
                 item = self._create_xhtml_item(new_book, file_name, f"{source_title} / {target_title}", body_html, css_links, uid)
@@ -173,7 +173,7 @@ class BookBuilder:
 
             elif source_info is not None:
                 title = source_info.get('title', f'Chapter {block_idx}')
-                print(f"Building source {title}...")
+                # print(f"Building source {title}...")
                 body = self._text_to_paragraphs(source_info.get('text', ''))
                 item = self._create_xhtml_item(new_book, file_name, title, f'<div class="source-only">{body}</div>', css_links, uid)
                 new_spine_ids.append(item.get_id())
@@ -181,7 +181,7 @@ class BookBuilder:
 
             elif target_info is not None:
                 title = target_info.get('title', f'Chapter {block_idx}')
-                print(f"Building target {title}...")
+                # print(f"Building target {title}...")
                 body = self._text_to_paragraphs(target_info.get('text', ''))
                 item = self._create_xhtml_item(new_book, file_name, title, f'<div class="target-only">{body}</div>', css_links, uid)
                 new_spine_ids.append(item.get_id())
