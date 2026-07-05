@@ -61,3 +61,4 @@ The code is AI-assisted.
 
 - Auto-match chapters works rather bad
 - Footnotes, endnotes, bold, italics, etc are lost
+- Paragraphs are indistinguishable
