@@ -19,7 +19,7 @@ def _sanitize_heading_text(raw: str) -> str:
     return cleaned if cleaned else raw[:80]
 
 class ChapterExtractor:
-    def __init__(self, book: epub.EpubBook, preview_words: int = 20, min_chars: int = 500):
+    def __init__(self, book: epub.EpubBook, preview_words: int = 20, min_chars: int = 200):
         self.book = book
         self.min_chars = min_chars
         self.preview_words = preview_words
