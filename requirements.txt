@@ -1,5 +1,6 @@
 fast-ebook==0.2.0
 bs4==0.0.2
+numpy==2.4.6
 
 -r ./bertalign/requirements.txt
 -e ./bertalign
