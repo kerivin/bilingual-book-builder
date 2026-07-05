@@ -1,4 +1,3 @@
-from bertalign.bertalign import Bertalign
 from typing import List, Dict, Any
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -28,6 +27,7 @@ class ChapterAligner:
         if not source_text.strip() or not target_text.strip():
             return []
 
+        from bertalign.bertalign import Bertalign
         try:
             model = Bertalign(
                 source_text, target_text,
