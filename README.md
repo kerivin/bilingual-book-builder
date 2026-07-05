@@ -4,6 +4,8 @@
 
 Builds a bilingual ePub from two ePubs of the same book in different languages.
 
+Usage: `python -m bbb -s original.epub -t translation.epub`
+
 <br clear="left"/>
 
 ### Installation
