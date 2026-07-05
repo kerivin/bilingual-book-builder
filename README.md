@@ -6,9 +6,6 @@ Builds a bilingual ePub from two ePubs of the same book in different languages u
 
 Usage: `python -m bbb -s original.epub -t translation.epub`
 
-The quality depends on the quality of the provided books. Some have a weird table of contents or don't have it at all, some duplicate a chapter title at the beginning of the chapter, some have no metadata, etc. Make sure the two books to merge are not broken.
-
-
 <br clear="left"/>
 
 ### Prerequisites
@@ -52,3 +49,7 @@ Typical usage:
 `python -m bbb -s original.epub -t translation.epub`
 
 `python -m bbb -s original.epub -t translation.epub -sl en -tl ru --threads 4 --keep-target-chapters`
+
+### Disclaimer
+
+The quality of the new book depends on the quality of the provided books. Some have a weird table of contents or don't have it at all, some duplicate a chapter title at the beginning of the chapter, some have no metadata, etc. Make sure the two books to merge are not broken.
