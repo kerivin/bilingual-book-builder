@@ -1,5 +1,5 @@
 import sys
-import bbb
+from bbb.cli import main
 
 if __name__ == "__main__":
-	sys.exit(bbb.main())
+	sys.exit(main())
