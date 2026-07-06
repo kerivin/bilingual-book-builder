@@ -20,6 +20,10 @@ dependencies = [
     # "sentence-transformers>=5.6.0",
 ]
 
+[project.optional-dependencies]
+cpu = ["bertalign[cpu] @ git+https://github.com/kerivin/bertalign.git"]
+gpu = ["bertalign[gpu] @ git+https://github.com/kerivin/bertalign.git"]
+
 [project.scripts]
 bbb = "bbb.__main__:main"
 
