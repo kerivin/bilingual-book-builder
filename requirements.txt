@@ -1,2 +1,2 @@
-./bertalign
+-e ./bertalign
 -e .
