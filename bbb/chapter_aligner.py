@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from bertalign.bertalign.encoder import Encoder
+from bertalign.encoder import Encoder
 
 class ChapterAligner:
     def __init__(
