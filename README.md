@@ -8,14 +8,17 @@ Usage: `python -m bbb -s original.epub -t translation.epub`
 
 <br clear="left"/>
 
+## Installation
+
+<details>
+<summary>Linux</summary>
+
 ### Prerequisites
 
 - Python (tested on 3.14)
 - pip
 - git
 
-
-### Installation
 ```
 git clone --recurse-submodules https://github.com/kerivin/bilingual-book-builder.git
 
@@ -28,7 +31,9 @@ pip install -r requirements.txt
 python -m bbb --help
 ```
 
-### Options
+</details>
+
+## Options
 
 | Command | Description | Example
 | --- | --- | --- |
@@ -54,13 +59,13 @@ Typical usage:
 `python -m bbb -s original.epub -t translation.epub -sl en -tl ru --threads 4 --keep-target-chapters`
 
 
-### Disclaimer
+## Disclaimer
 
 The quality of the new book depends on the quality of the provided books. Some have a weird table of contents or don't have it at all, some duplicate a chapter title at the beginning of the chapter, some have no metadata, etc. Make sure the two books to merge are not broken.
 
 The code is AI-assisted.
 
-### Known issues
+## Known issues
 
 - Chapter auto-match is unreliable
 - Footnotes, endnotes, bold, italics, etc are lost
