@@ -4,7 +4,7 @@
 
 Builds a bilingual ePub from two ePubs of the same book in different languages using [Bertalign](https://github.com/bfsujason/bertalign), which is proven to be one of the most accurate sentence aligners. Handles many-to-one, many-to-none and one-to-one sentences.
 
-Usage: `python -m bbb -s original.epub -t translation.epub`
+Usage: `bbb -s original.epub -t translation.epub`
 
 <br clear="left"/>
 
@@ -36,7 +36,7 @@ source .venv/bin/activate
 
 pip install --upgrade pip
 pip install -r requirements.txt
-python -m bbb --help
+bbb --help
 ```
 
 </details>
@@ -60,11 +60,11 @@ python -m bbb --help
 
 Typical usage:
 
-`python -m bbb --help`
+`bbb --help`
 
-`python -m bbb -s original.epub -t translation.epub`
+`bbb -s original.epub -t translation.epub`
 
-`python -m bbb -s original.epub -t translation.epub -sl en -tl ru --threads 4 --keep-target-chapters`
+`bbb -s original.epub -t translation.epub -sl en -tl ru --threads 4 --keep-target-chapters`
 
 
 ## Disclaimer
