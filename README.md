@@ -10,8 +10,16 @@ Usage: `python -m bbb -s original.epub -t translation.epub`
 
 ## Installation
 
+```
+pip install "bbb[cpu] @ git+https://github.com/kerivin/bilingual-book-builder.git"
+```
+or
+```
+pip install "bbb[gpu] @ git+https://github.com/kerivin/bilingual-book-builder.git"
+```
+
 <details>
-<summary>Linux</summary>
+<summary>Development on Linux</summary>
 
 ### Prerequisites
 
