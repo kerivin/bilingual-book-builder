@@ -7,7 +7,7 @@ name = "bbb"
 version = "0.1"
 description = "Bilingual Book Builder"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
     "fast-ebook>=0.2.0",
     "bs4>=0.0.2",
