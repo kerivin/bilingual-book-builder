@@ -17,10 +17,9 @@ Usage: `python -m bbb -s original.epub -t translation.epub`
 
 ### Installation
 ```
-git clone https://github.com/kerivin/bilingual-book-builder.git
-cd bilingual-book-builder
-git submodule update --init --recursive
+git clone --recurse-submodules https://github.com/kerivin/bilingual-book-builder.git
 
+cd bilingual-book-builder
 python -m venv .venv
 source .venv/bin/activate
 
