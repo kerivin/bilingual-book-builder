@@ -1,6 +1,7 @@
-import argparse
+from .bbb import BBB
 
 def main() -> int:
+	import argparse
 	parser = argparse.ArgumentParser(
 		description='Create a bilingual EPUB from two EPUB books in different languages.'
 	)
@@ -21,7 +22,6 @@ def main() -> int:
 		parser.print_help()
 		return 0
 
-	from bbb.bbb import BBB
 	BBB(
 		args.source,
 		args.target,
