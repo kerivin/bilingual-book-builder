@@ -18,13 +18,16 @@ online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb) (blocked in so
 
 ## Installation
 
-```
-pip install "bbb[cpu] @ git+https://github.com/kerivin/bilingual-book-builder.git"
-```
-or
+If you have a graphic card:
 ```
 pip install "bbb[gpu] @ git+https://github.com/kerivin/bilingual-book-builder.git"
 ```
+
+If you don't:
+```
+pip install "bbb[cpu] @ git+https://github.com/kerivin/bilingual-book-builder.git"
+```
+
 
 <details>
 <summary>Development on Linux</summary>
