@@ -6,8 +6,11 @@ Builds a bilingual ePub from two ePubs of the same book in different languages u
 
 Usage:
 
-1. `bbb -s original.epub -t translation.epub`
-2. online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb)
+`bbb -s original.epub -t translation.epub`
+
+or,
+
+online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb)
 
 <br clear="left"/>
 
