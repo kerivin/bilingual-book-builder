@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bertalign.encoder import Encoder
+from bertalign import Bertalign
 
 class ChapterAligner:
     def __init__(
@@ -25,7 +26,6 @@ class ChapterAligner:
         if not source_text.strip() or not target_text.strip():
             return []
 
-        from bertalign import Bertalign
         try:
             aligner = Bertalign(
                 self.model_encoder,
@@ -43,8 +43,10 @@ class ChapterAligner:
                 aligned.append({'source': src_seg, 'target': tgt_seg})
             return aligned
         except Exception as e:
-            print(f"Bertalign error: {e}")
-            return [{'source': source_text, 'target': target_text}]
+            e.add_note("^ Bertalign error")
+            raise
+            # print(f"Bertalign error: {e}")
+            # return [{'source': source_text, 'target': target_text}]
 
     def run(self) -> List[Dict[str, Any]]:
         """

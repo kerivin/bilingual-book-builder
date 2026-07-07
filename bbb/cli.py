@@ -15,7 +15,7 @@ def main() -> int:
     parser.add_argument('--keep-source-chapters', action='store_true', default=False, help='Whether to keep source chapters that have no target translation')
     parser.add_argument('--keep-target-chapters', action='store_true', default=False, help='Whether to keep target chapters that have no source original')
     parser.add_argument('--model', type=str, default='LaBSE', help='Name or path to sentence embedding model (download LaBSE if omitted)')
-
+    
     args = parser.parse_args()
     if args.only_match_chapters and args.auto_match_chapters is None:
         parser.print_help()

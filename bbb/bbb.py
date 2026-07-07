@@ -23,6 +23,7 @@ class BBB:
         self.target_epub_path = target_epub_path
         self.source_language = source_language
         self.target_language = target_language
+        self._check_languages()
         self.output = output
         self.threads = threads
         self.auto_match_chapter_threshold = auto_match_chapter_threshold
@@ -34,6 +35,17 @@ class BBB:
     def _create_sentence_transformer(self):
         from sentence_transformers import SentenceTransformer
         return SentenceTransformer(self.model)
+
+    def _check_languages(self):
+        from bertalign.utils import check_language
+
+        if self.source_language is not None:
+            self.source_language = self.source_language.lower()
+            check_language(self.source_language)
+        
+        if self.target_language is not None:
+            self.target_language = self.target_language.lower()
+            check_language(self.target_language)
 
     def run(self):
         books = epub.read_epubs([self.source_epub_path, self.target_epub_path], workers=2)
