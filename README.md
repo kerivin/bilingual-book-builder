@@ -84,3 +84,4 @@ The code is AI-assisted.
 - Chapter auto-match is unreliable
 - Footnotes, endnotes, bold, italics, etc are lost
 - Paragraphs are indistinguishable
+- Some readers still display the table borders even thought they are transparent
