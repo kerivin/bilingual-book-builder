@@ -203,6 +203,15 @@ class BookBuilder:
                 white-space: pre-wrap;
                 margin: 0.5em 0;
             }
+            .two-column-table,
+            .two-column-table tr,
+            .two-column-table td,
+            .col-heading {
+                border: 0 none transparent !important;
+                border-style: none !important;
+                border-width: 0 !important;
+                border-color: transparent !important;
+            }
             """
         )
         new_book.add_item(col_css)
