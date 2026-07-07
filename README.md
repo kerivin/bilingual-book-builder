@@ -10,7 +10,7 @@ Usage:
 
 or,
 
-online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb)
+online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb) (blocked in some regions, use proxy/VPN)
 
 <br clear="left"/>
 
