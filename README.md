@@ -4,7 +4,10 @@
 
 Builds a bilingual ePub from two ePubs of the same book in different languages using [Bertalign](https://github.com/bfsujason/bertalign), which is proven to be one of the most accurate sentence aligners. Handles many-to-one, many-to-none and one-to-one sentences.
 
-Usage: `bbb -s original.epub -t translation.epub`
+Usage:
+
+1. `bbb -s original.epub -t translation.epub`
+2. online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb)
 
 <br clear="left"/>
 
