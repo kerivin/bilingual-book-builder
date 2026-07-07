@@ -12,7 +12,7 @@ or,
 
 online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb) (blocked in some regions, use proxy/VPN) (also, quite slow)
 
-[List of supported languages](https://github.com/bfsujason/bertalign#languges-supported)
+See [list of supported languages](https://github.com/bfsujason/bertalign#languges-supported)
 
 <br clear="left"/>
 
