@@ -70,7 +70,7 @@ Typical usage:
 
 `bbb -s original.epub -t translation.epub`
 
-`bbb -s original.epub -t translation.epub -sl en -tl ru --threads 4 --keep-target-chapters`
+`bbb -s original.epub -t translation.epub -sl en -tl ru --auto-match-chapters --threads 4 --keep-target-chapters`
 
 
 ## Disclaimer
