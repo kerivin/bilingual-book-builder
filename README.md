@@ -85,3 +85,4 @@ The code is AI-assisted.
 - Footnotes, endnotes, bold, italics, etc are lost
 - Paragraphs are indistinguishable
 - Some readers still display the table borders even thought they are transparent
+- Sentence splitter only support 25 languages, whereas LaBSE is able to work with 100
