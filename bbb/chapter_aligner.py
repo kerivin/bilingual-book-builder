@@ -25,7 +25,7 @@ class ChapterAligner:
         if not source_text.strip() or not target_text.strip():
             return []
 
-        from bertalign.bertalign import Bertalign
+        from bertalign import Bertalign
         try:
             aligner = Bertalign(
                 self.model_encoder,
