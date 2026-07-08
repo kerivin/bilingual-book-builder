@@ -5,7 +5,9 @@
 <img width="300" src="https://github.com/user-attachments/assets/eac6ed36-7e4e-47c0-88fd-ec602c70d869" />
 
 
-Builds a bilingual ePub from two ePubs of the same book in different languages using [Bertalign](https://github.com/bfsujason/bertalign), which is proven to be one of the most accurate sentence aligners. Handles many-to-one, many-to-none and one-to-one sentences.
+Builds a bilingual ePub from two ePubs of the same book in different languages with sentences aligned side-by-side.
+
+It uses [Bertalign](https://github.com/bfsujason/bertalign), which is proven to be one of the most accurate sentence aligners. Handles many-to-one, many-to-none and one-to-one sentences.
 
 Usage:
 
