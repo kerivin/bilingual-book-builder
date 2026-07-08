@@ -162,7 +162,11 @@ class ChapterMapper:
         target_index = 0
         history = []
 
+        prev_level = self.log.level
+        self.log.setLevel(logging.INFO)
         self._show_chapter_lists_compact()
+        self.log.setLevel(prev_level)
+        
         print("\nMatch each pair.\n")
 
         while source_index < self.source_count or target_index < self.target_count:
