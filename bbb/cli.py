@@ -50,21 +50,21 @@ def main() -> int:
     # handler.setLevel(logger.level)
 
     bars = {}
-    def progress_callback(phase: str, step: int, total: int, message: str = None):
+    def progress_callback(phase_id, description: str, step: int, total: int, message: str = None):
         if args.verbosity == 'silent':
             return
 
         if step == 0:
-            bars[phase] = tqdm(total=total, desc=message or phase)
-        elif phase in bars:
-            current = bars[phase].n
+            bars[phase_id] = tqdm(total = total, desc = description or message or phase_id)
+        elif phase_id in bars:
+            current = bars[phase_id].n
             if step > current:
-                bars[phase].update(step - current)
+                bars[phase_id].update(step - current)
             if message:
-                bars[phase].set_postfix_str(message)
+                bars[phase_id].set_postfix_str(message)
             if step >= total:
-                bars[phase].close()
-                del bars[phase]
+                bars[phase_id].close()
+                del bars[phase_id]
 
     from bbb import BBB
     BBB(
