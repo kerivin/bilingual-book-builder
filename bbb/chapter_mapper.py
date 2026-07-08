@@ -278,8 +278,8 @@ class ChapterMapper:
         src_signature = [chapter_signature(ch) for ch in self.source]
         tgt_signature = [chapter_signature(ch) for ch in self.target]
 
-        src_embs = model.encode(src_signature, convert_to_numpy = True, show_progress_bar = show)
-        tgt_embs = model.encode(tgt_signature, convert_to_numpy = True, show_progress_bar = show)
+        src_embs = model.encode(src_signature, convert_to_numpy = True, show_progress_bar = False)
+        tgt_embs = model.encode(tgt_signature, convert_to_numpy = True, show_progress_bar = False)
 
         src_embs = src_embs / np.linalg.norm(src_embs, axis = 1, keepdims = True)
         tgt_embs = tgt_embs / np.linalg.norm(tgt_embs, axis = 1, keepdims = True)
