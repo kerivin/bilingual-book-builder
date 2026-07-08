@@ -3,12 +3,15 @@ import uuid
 from typing import List, Dict, Any, Optional
 from fast_ebook import epub
 import fast_ebook
+import logging
+from bbb import progress
 
 class BookBuilder:
     def __init__(self, source_book: epub.EpubBook, target_book: epub.EpubBook, blocks: List[Dict[str, Any]]):
         self.source_book = source_book
         self.target_book = target_book
         self.blocks = blocks
+        self.log = logging.getLogger(__name__)
 
     def _get_base_dir(self) -> str:
         spine = self.target_book.get_spine()
@@ -220,51 +223,54 @@ class BookBuilder:
         new_spine_ids = []
         toc_links = []
 
-        for block_idx, block in enumerate(self.blocks):
-            source_info = block.get('source')
-            target_info = block.get('target')
+        with progress.phase('building', len(self.blocks), "Building chapters"):
+            for block_idx, block in enumerate(self.blocks):
+                source_info = block.get('source')
+                target_info = block.get('target')
 
-            if source_info is None and target_info is None:
-                continue
+                if source_info is None and target_info is None:
+                    continue
 
-            alignment = block.get('alignment') or []
-            file_name = f"{base_dir}chap_{block_idx:03d}.xhtml"
-            uid = f"chap_{block_idx:03d}"
+                alignment = block.get('alignment') or []
+                file_name = f"{base_dir}chap_{block_idx:03d}.xhtml"
+                uid = f"chap_{block_idx:03d}"
 
-            if source_info is not None and target_info is not None:
-                source_title = source_info.get('title', 'Source')
-                target_title = target_info.get('title', 'Target')
-                print(f"Building {source_title} - {target_title}...")
+                if source_info is not None and target_info is not None:
+                    source_title = source_info.get('title', 'Source')
+                    target_title = target_info.get('title', 'Target')
+                    self.log.info(f"Building {source_title} - {target_title}...")
 
-                header_row = f'<tr class="title-row"><td class="col-left"><h2 class="col-heading">{source_title}</h2></td><td class="col-right"><h2 class="col-heading">{target_title}</h2></td></tr>'
-                body_html = self._build_two_column_html(alignment, header_row)
-                item = self._create_xhtml_item(new_book, file_name, f"{source_title} / {target_title}", body_html, css_links, uid)
-                new_spine_ids.append(item.get_id())
+                    header_row = f'<tr class="title-row"><td class="col-left"><h2 class="col-heading">{source_title}</h2></td><td class="col-right"><h2 class="col-heading">{target_title}</h2></td></tr>'
+                    body_html = self._build_two_column_html(alignment, header_row)
+                    item = self._create_xhtml_item(new_book, file_name, f"{source_title} / {target_title}", body_html, css_links, uid)
+                    new_spine_ids.append(item.get_id())
 
-                toc_title = target_info.get('toc_title', target_title.replace('\n', ' '))
-                toc_links.append(epub.Link(item.get_name(), toc_title, item.get_id()))
+                    toc_title = target_info.get('toc_title', target_title.replace('\n', ' '))
+                    toc_links.append(epub.Link(item.get_name(), toc_title, item.get_id()))
 
-            elif source_info is not None:
-                title = source_info.get('title', f'Chapter {block_idx}')
-                print(f"Building source {title}...")
+                elif source_info is not None:
+                    title = source_info.get('title', f'Chapter {block_idx}')
+                    self.log.info(f"Building source {title}...")
 
-                body = self._text_to_paragraphs(source_info.get('text', ''))
-                item = self._create_xhtml_item(new_book, file_name, title, f'<div class="source-only">{body}</div>', css_links, uid)
-                new_spine_ids.append(item.get_id())
+                    body = self._text_to_paragraphs(source_info.get('text', ''))
+                    item = self._create_xhtml_item(new_book, file_name, title, f'<div class="source-only">{body}</div>', css_links, uid)
+                    new_spine_ids.append(item.get_id())
 
-                toc_title = source_info.get('toc_title', title.replace('\n', ' '))
-                toc_links.append(epub.Link(item.get_name(), title, item.get_id()))
+                    toc_title = source_info.get('toc_title', title.replace('\n', ' '))
+                    toc_links.append(epub.Link(item.get_name(), title, item.get_id()))
 
-            elif target_info is not None:
-                title = target_info.get('title', f'Chapter {block_idx}')
-                print(f"Building target {title}...")
+                elif target_info is not None:
+                    title = target_info.get('title', f'Chapter {block_idx}')
+                    self.log.info(f"Building target {title}...")
 
-                body = self._text_to_paragraphs(target_info.get('text', ''))
-                item = self._create_xhtml_item(new_book, file_name, title, f'<div class="target-only">{body}</div>', css_links, uid)
-                new_spine_ids.append(item.get_id())
+                    body = self._text_to_paragraphs(target_info.get('text', ''))
+                    item = self._create_xhtml_item(new_book, file_name, title, f'<div class="target-only">{body}</div>', css_links, uid)
+                    new_spine_ids.append(item.get_id())
 
-                toc_title = target_info.get('toc_title', title.replace('\n', ' '))
-                toc_links.append(epub.Link(item.get_name(), toc_title, item.get_id()))
+                    toc_title = target_info.get('toc_title', title.replace('\n', ' '))
+                    toc_links.append(epub.Link(item.get_name(), toc_title, item.get_id()))
+                
+                progress.update('building')
 
         new_book.add_item(epub.EpubNcx())
         new_book.add_item(epub.EpubNav())
@@ -272,5 +278,5 @@ class BookBuilder:
         new_book.spine = new_spine_ids
         new_book.toc = toc_links
 
-        print("Book is ready!")
+        self.log.info("Book is ready!")
         return new_book

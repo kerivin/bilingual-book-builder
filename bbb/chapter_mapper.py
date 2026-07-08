@@ -1,6 +1,8 @@
 import shutil
 import numpy as np
 from enum import IntEnum
+import logging
+from bbb import progress
 
 class ChapterMapper:
     def __init__(self, source_chapters, target_chapters, keep_unmatched_source_chapters: bool, keep_unmatched_target_chapters: bool):
@@ -8,15 +10,17 @@ class ChapterMapper:
         self.target = target_chapters
         self.keep_unmatched_source_chapters = keep_unmatched_source_chapters
         self.keep_unmatched_target_chapters = keep_unmatched_target_chapters
+
         self.source_count = len(source_chapters)
         self.target_count = len(target_chapters)
         self.chapter_pairs = []
         self.unmatched_source_chapters = []
         self.unmatched_target_chapters = []
+        self.log = logging.getLogger(__name__)
 
     def _print_horizontal_line(self):
         terminal_width = shutil.get_terminal_size().columns
-        print("─" * terminal_width)
+        self.log.info("─" * terminal_width)
 
     def _chapter_title(self, chapters, idx):
         if idx < 0 or idx >= len(chapters):
@@ -47,14 +51,14 @@ class ChapterMapper:
             else:
                 target_lines.append("")
         col_width = max((len(s) for s in source_lines), default=30) + 4
-        print("\n" + "Source chapters".ljust(col_width) + "Target chapters")
-        print("-" * (col_width + max((len(t) for t in target_lines), default=30) + 4))
+        self.log.info("\n" + "Source chapters".ljust(col_width) + "Target chapters")
+        self.log.info("-" * (col_width + max((len(t) for t in target_lines), default=30) + 4))
         for s_line, t_line in zip(source_lines, target_lines):
-            print(f"{s_line:<{col_width}}{t_line}")
+            self.log.info(f"{s_line:<{col_width}}{t_line}")
 
     def _show_chapter_mapping(self):
         if not self.chapter_pairs and not self.unmatched_source_chapters and not self.unmatched_target_chapters:
-            print("No mapping defined.")
+            self.log.info("No mapping defined.")
             return
 
         unmatched_src = set(self.unmatched_source_chapters) if self.keep_unmatched_source_chapters else set()
@@ -65,34 +69,34 @@ class ChapterMapper:
         prev_s = -1
         prev_t = -1
 
-        print("\nMapping:")
+        self.log.info("\nMapping:")
 
         for s, t in pairs_sorted:
             for src_idx in sorted(unmatched_src):
                 if prev_s < src_idx < s:
                     source_title = self._chapter_title(self.source, src_idx)
                     source_preview = self._chapter_preview(self.source, src_idx)
-                    print(source_title + " - (no target)")
-                    print(source_preview)
-                    print("-")
+                    self.log.info(source_title + " - (no target)")
+                    self.log.info(source_preview)
+                    self.log.info("-")
                     self._print_horizontal_line()
 
             for tgt_idx in sorted(unmatched_tgt):
                 if prev_t < tgt_idx and tgt_idx < t:
                     target_title = self._chapter_title(self.target, tgt_idx)
                     target_preview = self._chapter_preview(self.target, tgt_idx)
-                    print("(no source) - " + target_title)
-                    print("-")
-                    print(target_preview)
+                    self.log.info("(no source) - " + target_title)
+                    self.log.info("-")
+                    self.log.info(target_preview)
                     self._print_horizontal_line()
 
             source_title = self._chapter_title(self.source, s)
             source_preview = self._chapter_preview(self.source, s)
             target_title = self._chapter_title(self.target, t)
             target_preview = self._chapter_preview(self.target, t)
-            print(source_title + ' - ' + target_title)
-            print(source_preview)
-            print(target_preview)
+            self.log.info(source_title + ' ─ ' + target_title)
+            self.log.info(source_preview)
+            self.log.info(target_preview)
             self._print_horizontal_line()
 
             prev_s, prev_t = s, t
@@ -101,18 +105,18 @@ class ChapterMapper:
             if src_idx > prev_s:
                 source_title = self._chapter_title(self.source, src_idx)
                 source_preview = self._chapter_preview(self.source, src_idx)
-                print(source_title + " - (no target)")
-                print(source_preview)
-                print("-")
+                self.log.info(source_title + " ─ (no target)")
+                self.log.info(source_preview)
+                self.log.info("─")
                 self._print_horizontal_line()
 
         for tgt_idx in sorted(unmatched_tgt):
             if tgt_idx > prev_t:
                 target_title = self._chapter_title(self.target, tgt_idx)
                 target_preview = self._chapter_preview(self.target, tgt_idx)
-                print("(no source) - " + target_title)
-                print("-")
-                print(target_preview)
+                self.log.info("(no source) ─ " + target_title)
+                self.log.info("─")
+                self.log.info(target_preview)
                 self._print_horizontal_line()
     
     def _export_mapping(self):
@@ -254,7 +258,7 @@ class ChapterMapper:
             else:
                 print("Please answer y, n, or q.")
 
-    def run_auto(self, model, threshold: float = 0.5):
+    def run_auto(self, model, show: bool, threshold: float = 0.5):
         def chapter_signature(chapter):
             title = chapter.get('toc_title', '')
             full_text = chapter.get('full_text', '')
@@ -274,8 +278,8 @@ class ChapterMapper:
         src_signature = [chapter_signature(ch) for ch in self.source]
         tgt_signature = [chapter_signature(ch) for ch in self.target]
 
-        src_embs = model.encode(src_signature, convert_to_numpy = True)
-        tgt_embs = model.encode(tgt_signature, convert_to_numpy = True)
+        src_embs = model.encode(src_signature, convert_to_numpy = True, show_progress_bar = show)
+        tgt_embs = model.encode(tgt_signature, convert_to_numpy = True, show_progress_bar = show)
 
         src_embs = src_embs / np.linalg.norm(src_embs, axis = 1, keepdims = True)
         tgt_embs = tgt_embs / np.linalg.norm(tgt_embs, axis = 1, keepdims = True)
@@ -339,5 +343,11 @@ class ChapterMapper:
         self.unmatched_target_chapters.reverse()
 
         self.chapter_pairs = chapter_pairs
-        self._show_chapter_mapping()
+        if show:
+            prev_level = self.log.level
+            self.log.setLevel(logging.INFO)
+            self._show_chapter_mapping()
+            self.log.setLevel(prev_level)
+
+        self.log.info("\nAuto-matching completed.")
         return self._export_mapping()

@@ -4,6 +4,8 @@ from bs4 import BeautifulSoup
 from fast_ebook import epub
 import fast_ebook
 from enum import Enum
+import logging
+from bbb import progress
 
 class FilterMode(Enum):
     HEADING = 0

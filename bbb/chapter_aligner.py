@@ -1,5 +1,7 @@
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
+from bbb import progress
 from bertalign.encoder import Encoder
 from bertalign import Bertalign
 
@@ -21,6 +23,7 @@ class ChapterAligner:
         self.target_language = target_language
         self.threads = threads
         self.model_encoder = Encoder(model)
+        self.log = logging.getLogger(__name__)
 
     def _align_pair(self, source_text: str, target_text: str) -> List[Dict[str, str]]:
         if not source_text.strip() or not target_text.strip():
@@ -30,7 +33,8 @@ class ChapterAligner:
             aligner = Bertalign(
                 self.model_encoder,
                 source_text, target_text,
-                self.source_language, self.target_language
+                self.source_language, self.target_language,
+                # progress_callback = progress.get_callback()
             )
             aligner.align_sents()
             # model.print_sents()
@@ -88,22 +92,25 @@ class ChapterAligner:
                 tgt_text = self.target_chapters[tgt_idx]['full_text']
                 pairs_to_align.append((idx, src_text, tgt_text))
 
-        if self.threads > 1 and pairs_to_align:
-            with ThreadPoolExecutor(max_workers=self.threads) as executor:
-                future_to_idx = {
-                    executor.submit(self._align_pair, src, tgt): (idx, src, tgt)
-                    for idx, src, tgt in pairs_to_align
-                }
-                for future in as_completed(future_to_idx):
-                    idx, src_text, tgt_text = future_to_idx[future]
-                    try:
-                        alignment = future.result()
-                    except Exception as e:
-                        print(f"Error aligning chapter pair {idx}: {e}")
-                        alignment = [{'source': src_text, 'target': tgt_text}]
-                    output[idx]['alignment'] = alignment
-        else:
-            for idx, src_text, tgt_text in pairs_to_align:
-                output[idx]['alignment'] = self._align_pair(src_text, tgt_text)
+        with progress.phase('aligning', len(pairs_to_align), "Aligning chapters"):
+            if self.threads > 1 and pairs_to_align:
+                with ThreadPoolExecutor(max_workers=self.threads) as executor:
+                    future_to_idx = {
+                        executor.submit(self._align_pair, src, tgt): (idx, src, tgt)
+                        for idx, src, tgt in pairs_to_align
+                    }
+                    for future in as_completed(future_to_idx):
+                        idx, src_text, tgt_text = future_to_idx[future]
+                        try:
+                            alignment = future.result()
+                        except Exception as e:
+                            self.log.error(f"Error aligning chapter pair {idx}: {e}")
+                            alignment = [{'source': src_text, 'target': tgt_text}]
+                        output[idx]['alignment'] = alignment
+                        progress.update('aligning')
+            else:
+                for idx, src_text, tgt_text in pairs_to_align:
+                    output[idx]['alignment'] = self._align_pair(src_text, tgt_text)
+                    progress.update('aligning')
 
         return output

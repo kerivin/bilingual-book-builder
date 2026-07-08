@@ -1,4 +1,6 @@
 import argparse
+import logging
+from tqdm import tqdm
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -15,11 +17,54 @@ def main() -> int:
     parser.add_argument('--keep-source-chapters', action='store_true', default=False, help='Whether to keep source chapters that have no target translation')
     parser.add_argument('--keep-target-chapters', action='store_true', default=False, help='Whether to keep target chapters that have no source original')
     parser.add_argument('--model', type=str, default='LaBSE', help='Name or path to sentence embedding model (download LaBSE if omitted)')
+    parser.add_argument('-v', '--verbosity', choices=['silent', 'progress', 'verbose'], default='progress', help='Silent (no progress), Progress (show progress bars), Verbose (all messages)')
     
     args = parser.parse_args()
     if args.only_match_chapters and args.auto_match_chapters is None:
         parser.print_help()
         return 0
+
+    def get_log_level(verbosity):
+        match verbosity:
+            case 'silent':
+                return logging.ERROR
+            case 'progress':
+                return logging.WARNING
+            case _:
+                return logging.INFO
+
+    logger = logging.getLogger('bbb')
+    logger.setLevel(get_log_level(args.verbosity))
+    for h in logger.handlers[:]:
+        logger.removeHandler(h)
+    class TqdmStream:
+        def write(self, msg):
+            if msg and msg.strip():
+                tqdm.write(msg, end='')
+        def flush(self):
+            pass
+
+    handler = logging.StreamHandler(stream=TqdmStream())
+    handler.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(handler)
+    # handler.setLevel(logger.level)
+
+    bars = {}
+    def progress_callback(phase: str, step: int, total: int, message: str = None):
+        if args.verbosity == 'silent':
+            return
+
+        if step == 0:
+            bars[phase] = tqdm(total=total, desc=message or phase)
+        elif phase in bars:
+            current = bars[phase].n
+            if step > current:
+                bars[phase].update(step - current)
+            if message:
+                bars[phase].set_postfix_str(message)
+            if step >= total:
+                bars[phase].close()
+                del bars[phase]
 
     from bbb import BBB
     BBB(
@@ -33,7 +78,9 @@ def main() -> int:
         args.only_match_chapters,
         args.keep_source_chapters,
         args.keep_target_chapters,
-        args.model
+        args.model,
+        args.verbosity,
+        progress_callback
     ).run()
 
     return 0
