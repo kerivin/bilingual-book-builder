@@ -1,6 +1,9 @@
 # bilingual-book-builder
 
-<img width="300" align="left" alt="image_2026-07-05_13-02-23" src="https://github.com/user-attachments/assets/04345fb1-6a57-41f1-bc39-1efc50491af5" />
+<img width="300" src="https://github.com/user-attachments/assets/04345fb1-6a57-41f1-bc39-1efc50491af5" />
+
+<img width="300" src="https://github.com/user-attachments/assets/eac6ed36-7e4e-47c0-88fd-ec602c70d869" />
+
 
 Builds a bilingual ePub from two ePubs of the same book in different languages using [Bertalign](https://github.com/bfsujason/bertalign), which is proven to be one of the most accurate sentence aligners. Handles many-to-one, many-to-none and one-to-one sentences.
 
@@ -13,8 +16,6 @@ or,
 online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb) (blocked in some regions, use proxy/VPN) (also, quite slow)
 
 See [list of supported languages](https://github.com/bfsujason/bertalign#languges-supported)
-
-<br clear="left"/>
 
 ## Installation
 
