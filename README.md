@@ -63,7 +63,7 @@ python -m bbb --help
 | `-t TARGET`<br>`--target TARGET` | Path to target (translation) EPUB | `-t translation.epub`<br>`--target "translation with spaces.epub"` |
 | `-sl SOURCE_LANGUAGE`<br>`--source-language SOURCE_LANGUAGE` | Source (original) language code.<br>Auto-detect if omitted | `-sl en`<br>`--source-language en` |
 | `-tl TARGET_LANGUAGE`<br>`--target-language TARGET_LANGUAGE` | Target (translation) language code.<br>Auto-detect if omitted | `-tl ru`<br>`--target-language ru` |
-| `-o FILENAME`<br>`--output FILENAME` | New EPUB name.<br>Default: bilingual | `-o book.epub`<br>`--output book.epub` |
+| `-o FILENAME`<br>`--output FILENAME` | New EPUB name.<br>Default: bilingual | `-o book`<br>`--output book` |
 | `--threads THREADS` | Number of parallel threads.<br>Default: 1 | `--threads 4` |
 | `--auto-match-chapters [THRESHOLD]` | Auto-match chapters instead of manual matching.<br>Default: off | `--auto-match-chapters`<br>`--auto-match-chapters 0.8` |
 | `--only {auto-match,extract}` | Only show extracted chapters or auto-matched chapters without generating a new EPUB | `--only auto-match` |
