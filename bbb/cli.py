@@ -13,14 +13,14 @@ def main() -> int:
     parser.add_argument('-o', '--output', type=str, default='bilingual.epub', help='Output EPUB file (default: bilingual.epub)')
     parser.add_argument('--threads', type=int, default=1, help='How many parallel threads for book processing')
     parser.add_argument('--auto-match-chapters', nargs='?', const=0.6, default=None, type=float, help='Auto match chapters. Optionally, you can provide a similarity threshold value (0.0-1.0)')
-    parser.add_argument('--only-match-chapters', action='store_true', help='Only auto matching, no EPUB generated (requires --auto-match-chapters)')
+    parser.add_argument('--only', choices=['auto-match', 'extract'], default=None, help='Only extract chapters or auto-match chapters without generating a new EPUB')
     parser.add_argument('--keep-source-chapters', action='store_true', default=False, help='Whether to keep source chapters that have no target translation')
     parser.add_argument('--keep-target-chapters', action='store_true', default=False, help='Whether to keep target chapters that have no source original')
     parser.add_argument('--model', type=str, default='LaBSE', help='Name or path to sentence embedding model (download LaBSE if omitted)')
     parser.add_argument('-v', '--verbosity', choices=['silent', 'progress', 'verbose'], default='progress', help='Silent (no progress), Progress (show progress bars), Verbose (all messages)')
     
     args = parser.parse_args()
-    if args.only_match_chapters and args.auto_match_chapters is None:
+    if args.only == 'auto-match' and args.auto_match_chapters is None:
         parser.print_help()
         return 0
 
@@ -75,7 +75,7 @@ def main() -> int:
         args.output,
         args.threads,
         args.auto_match_chapters,
-        args.only_match_chapters,
+        args.only,
         args.keep_source_chapters,
         args.keep_target_chapters,
         args.model,

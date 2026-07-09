@@ -2,7 +2,7 @@ import shutil
 import numpy as np
 from enum import IntEnum
 import logging
-from bbb import progress
+from bbb import progress, utils
 
 class ChapterMapper:
     def __init__(self, source_chapters, target_chapters, keep_unmatched_source_chapters: bool, keep_unmatched_target_chapters: bool):
@@ -17,10 +17,6 @@ class ChapterMapper:
         self.unmatched_source_chapters = []
         self.unmatched_target_chapters = []
         self.log = logging.getLogger(__name__)
-
-    def _print_horizontal_line(self):
-        terminal_width = shutil.get_terminal_size().columns
-        self.log.info("─" * terminal_width)
 
     def _chapter_title(self, chapters, idx):
         if idx < 0 or idx >= len(chapters):
@@ -69,35 +65,29 @@ class ChapterMapper:
         prev_s = -1
         prev_t = -1
 
-        self.log.info("\nMapping:")
+        self.log.info("\nCurrent mapping:\n")
 
         for s, t in pairs_sorted:
             for src_idx in sorted(unmatched_src):
                 if prev_s < src_idx < s:
                     source_title = self._chapter_title(self.source, src_idx)
                     source_preview = self._chapter_preview(self.source, src_idx)
-                    self.log.info(source_title + " - (no target)")
-                    self.log.info(source_preview)
-                    self.log.info("-")
-                    self._print_horizontal_line()
+                    self.log.info(f"{source_title} ─ (no target)\n{source_preview}\n─")
+                    utils.print_horizontal_line(self.log.info)
 
             for tgt_idx in sorted(unmatched_tgt):
                 if prev_t < tgt_idx and tgt_idx < t:
                     target_title = self._chapter_title(self.target, tgt_idx)
                     target_preview = self._chapter_preview(self.target, tgt_idx)
-                    self.log.info("(no source) - " + target_title)
-                    self.log.info("-")
-                    self.log.info(target_preview)
-                    self._print_horizontal_line()
+                    self.log.info(f"(no source) ─ {target_title}\n─\n{target_preview}")
+                    utils.print_horizontal_line(self.log.info)
 
             source_title = self._chapter_title(self.source, s)
             source_preview = self._chapter_preview(self.source, s)
             target_title = self._chapter_title(self.target, t)
             target_preview = self._chapter_preview(self.target, t)
-            self.log.info(source_title + ' ─ ' + target_title)
-            self.log.info(source_preview)
-            self.log.info(target_preview)
-            self._print_horizontal_line()
+            self.log.info(f"{source_title} ─ {target_title}\n{source_preview}\n{target_preview}")
+            utils.print_horizontal_line(self.log.info)
 
             prev_s, prev_t = s, t
 
@@ -105,19 +95,15 @@ class ChapterMapper:
             if src_idx > prev_s:
                 source_title = self._chapter_title(self.source, src_idx)
                 source_preview = self._chapter_preview(self.source, src_idx)
-                self.log.info(source_title + " ─ (no target)")
-                self.log.info(source_preview)
-                self.log.info("─")
-                self._print_horizontal_line()
+                self.log.info(f"{source_title} ─ (no target)\n{source_preview}\n─")
+                utils.print_horizontal_line(self.log.info)
 
         for tgt_idx in sorted(unmatched_tgt):
             if tgt_idx > prev_t:
                 target_title = self._chapter_title(self.target, tgt_idx)
                 target_preview = self._chapter_preview(self.target, tgt_idx)
-                self.log.info("(no source) ─ " + target_title)
-                self.log.info("─")
-                self.log.info(target_preview)
-                self._print_horizontal_line()
+                self.log.info(f"(no source) ─ {target_title}\n─\n{target_preview}")
+                utils.print_horizontal_line(self.log.info)
     
     def _export_mapping(self):
         src_in_pairs = {s for s, t in self.chapter_pairs}
@@ -162,15 +148,11 @@ class ChapterMapper:
         target_index = 0
         history = []
 
-        prev_level = self.log.level
-        self.log.setLevel(logging.INFO)
-        self._show_chapter_lists_compact()
-        self.log.setLevel(prev_level)
-        
+        self._show_chapter_lists_compact()        
         print("\nMatch each pair.\n")
 
         while source_index < self.source_count or target_index < self.target_count:
-            self._print_horizontal_line()
+            utils.print_horizontal_line(self.log.info)
             if source_index < self.source_count:
                 print(f"Source [S to skip]: {self._chapter_str(self.source, source_index)}")
             else:
@@ -179,7 +161,7 @@ class ChapterMapper:
                 print(f"Target [T to skip]: {self._chapter_str(self.target, target_index)}")
             else:
                 print("Target: (no more)")
-            self._print_horizontal_line()
+            utils.print_horizontal_line(self.log.info)
 
             if source_index >= self.source_count and target_index >= self.target_count:
                 break
@@ -246,23 +228,24 @@ class ChapterMapper:
         return True
     
     def run_interactive(self):
-        while True:
-            if self._run_interactive() == False:
-                return None
-            try:
-                confirm = input("Accept this mapping? [Y]es / [N]o (redo) / [Q]uit: ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                return None
-            if confirm in ('y', 'yes', ''):
-                return self._export_mapping()
-            elif confirm in ('n', 'no'):
-                print("Restarting matching...\n")
-            elif confirm in ('q', 'quit'):
-                return None
-            else:
-                print("Please answer y, n, or q.")
+        with utils.temporary_log_level(self.log, logging.INFO):
+            while True:
+                if self._run_interactive() == False:
+                    return None
+                try:
+                    confirm = input("Accept this mapping? [Y]es / [N]o (redo) / [Q]uit: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    return None
+                if confirm in ('y', 'yes', ''):
+                    return self._export_mapping()
+                elif confirm in ('n', 'no'):
+                    print("Restarting matching...\n")
+                elif confirm in ('q', 'quit'):
+                    return None
+                else:
+                    print("Please answer y, n, or q.")
 
-    def run_auto(self, model, show: bool, threshold: float = 0.5):
+    def run_auto(self, model, force_show: bool, threshold: float = 0.5):
         def chapter_signature(chapter):
             title = chapter.get('toc_title', '')
             full_text = chapter.get('full_text', '')
@@ -347,11 +330,9 @@ class ChapterMapper:
         self.unmatched_target_chapters.reverse()
 
         self.chapter_pairs = chapter_pairs
-        if show:
-            prev_level = self.log.level
-            self.log.setLevel(logging.INFO)
-            self._show_chapter_mapping()
-            self.log.setLevel(prev_level)
+        if force_show:
+            with utils.temporary_log_level(self.log, logging.INFO):
+                self._show_chapter_mapping()
 
         self.log.info("\nAuto-matching completed.")
         return self._export_mapping()

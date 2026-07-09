@@ -72,35 +72,38 @@ class BookBuilder:
 
         src_titles = get_metadata(self.source_book, 'title') if self.source_book else []
         tgt_titles = get_metadata(self.target_book, 'title')
-        if src_titles and tgt_titles:
-            new_book.set_title(f"{src_titles[0]} / {tgt_titles[0]}")
-        elif tgt_titles:
-            new_book.set_title(tgt_titles[0])
-        elif src_titles:
-            new_book.set_title(src_titles[0])
 
-        for creator in self.source_book.get_metadata('DC', 'creator'):
-            attrs = creator[1] if len(creator) > 1 else {}
-            known_kwargs = {}
-            if 'opf:role' in attrs:
-                known_kwargs['role'] = attrs['opf:role']
-            if 'opf:file-as' in attrs:
-                known_kwargs['file_as'] = attrs['opf:file-as']
-            try:
-                new_book.add_author(creator[0], **known_kwargs)
-            except TypeError:
-                new_book.add_author(creator[0])
-        for creator in self.target_book.get_metadata('DC', 'creator'):
-            attrs = creator[1] if len(creator) > 1 else {}
-            known_kwargs = {}
-            if 'opf:role' in attrs:
-                known_kwargs['role'] = attrs['opf:role']
-            if 'opf:file-as' in attrs:
-                known_kwargs['file_as'] = attrs['opf:file-as']
-            try:
-                new_book.add_author(creator[0], **known_kwargs)
-            except TypeError:
-                new_book.add_author(creator[0])
+        title: str = ""
+        if src_titles and tgt_titles:
+            title = f"{src_titles[0]} / {tgt_titles[0]}"
+        elif tgt_titles:
+            title = tgt_titles[0]
+        elif src_titles:
+            title = src_titles[0]
+        
+        self.log.info(f"New book title: {title}")
+        new_book.set_title(title)
+
+        def set_authors_from(book):
+            authors: str = ""
+            for creator in book.get_metadata('DC', 'creator'):
+                attrs = creator[1] if len(creator) > 1 else {}
+                known_kwargs = {}
+                if 'opf:role' in attrs:
+                    known_kwargs['role'] = attrs['opf:role']
+                if 'opf:file-as' in attrs:
+                    known_kwargs['file_as'] = attrs['opf:file-as']
+                try:
+                    new_book.add_author(creator[0], **known_kwargs)
+                    authors += "creator[0], "
+                except TypeError:
+                    new_book.add_author(creator[0])
+                    authors += "creator[0], "
+            
+            self.log.info(f"New book authors: {authors}")
+
+        set_authors_from(self.source_book)
+        set_authors_from(self.target_book)
 
         tgt_langs = get_metadata(self.target_book, 'language')
         if tgt_langs:

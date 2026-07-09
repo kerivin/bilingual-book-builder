@@ -5,17 +5,19 @@ from fast_ebook import epub
 import fast_ebook
 from enum import Enum
 import logging
-from bbb import progress
+from bbb import progress, utils
 
 class FilterMode(Enum):
     HEADING = 0
     NOT_NUMBER = 1
 
 class ChapterExtractor:
-    def __init__(self, book: epub.EpubBook, preview_words: int = 20, min_chars: int = 200):
+    def __init__(self, book: epub.EpubBook, force_show: bool = False, preview_words: int = 20, min_chars: int = 200):
         self.book = book
+        self.force_show = force_show
         self.min_chars = min_chars
         self.preview_words = preview_words
+        self.log = logging.getLogger(__name__)
 
     def get_chapter_list(self) -> List[Dict[str, Any]]:
         chapters = self._extract_native_toc(FilterMode.HEADING)
@@ -25,6 +27,16 @@ class ChapterExtractor:
         if chapters and len(chapters) >= 2:
             return chapters
         return self._extract_via_headers()
+
+    def _show_chapters(self, chapters):
+        if not self.force_show:
+            return
+        
+        with utils.temporary_log_level(self.log, logging.INFO):
+            self.log.info(f"\n{self.book.get_metadata('DC', 'title')[0][0]}\n------")
+            for i in range(len(chapters)):
+                self.log.info(f"{chapters[i]['toc_title']}\n{chapters[i]['preview']}")
+                utils.print_horizontal_line(self.log.info)
 
     def _create_chapter(self, title, toc_title, full_text, item_id=None):
         return {
@@ -148,6 +160,8 @@ class ChapterExtractor:
 
         for i, chapter in enumerate(chapters):
             chapter["index"] = i
+        
+        self._show_chapters(chapters)
         return chapters
 
     def _extract_via_headers(self) -> List[Dict[str, Any]]:
@@ -190,4 +204,6 @@ class ChapterExtractor:
 
         for i, chapter in enumerate(chapters):
             chapter["index"] = i
+        
+        self._show_chapters(chapters)
         return chapters
