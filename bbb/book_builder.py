@@ -27,7 +27,7 @@ class BookBuilder:
 
     def _copy_cover(self, new_book: epub.EpubBook) -> None:
         cover_id = None
-        opf_meta = self.target_book.get_metadata('http://www.idpf.org/2007/opf', 'meta')
+        opf_meta = self.target_book.get_metadata(epub.NAMESPACES['OPF'], 'meta')
         for val, attrs in opf_meta:
             if attrs.get('name') == 'cover':
                 cover_id = attrs.get('content')
@@ -83,10 +83,10 @@ class BookBuilder:
                     known_kwargs['file_as'] = attrs['opf:file-as']
                 try:
                     new_book.add_author(creator[0], **known_kwargs)
-                    authors += "creator[0], "
+                    authors += f"{creator[0]}, "
                 except TypeError:
                     new_book.add_author(creator[0])
-                    authors += "creator[0], "
+                    authors += f"{creator[0]}, "
 
             self.log.info(f"New book authors: {authors}")
 
