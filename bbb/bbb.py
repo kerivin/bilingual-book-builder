@@ -1,5 +1,4 @@
 from ebooklib import epub
-import ebooklib
 import logging
 from bbb import progress
 from bbb.chapter_extractor import ChapterExtractor
@@ -55,17 +54,15 @@ class BBB:
             check_language(self.target_language)
 
     def run(self):
-        source_book = epub.read_epub(self.source_epub_path)
-        if not source_book:
-            self.log.error(f"Failed to read source EPUB file {self.source_epub_path}.")
-            return
-        target_book = epub.read_epub(self.target_epub_path)
-        if not target_book:
-            self.log.error(f"Failed to read source EPUB file {self.target_epub_path}.")
-            return
+        source_chapters = ChapterExtractor(
+            path = self.source_epub_path,
+            force_show = self.only == 'extract'
+        ).get_chapter_list()
 
-        source_chapters = ChapterExtractor(book = source_book, force_show = self.only == 'extract').get_chapter_list()
-        target_chapters = ChapterExtractor(book = target_book, force_show = self.only == 'extract').get_chapter_list()
+        target_chapters = ChapterExtractor(
+            path = self.target_epub_path,
+            force_show = self.only == 'extract'
+        ).get_chapter_list()
 
         if not source_chapters or not target_chapters:
             self.log.error("No chapters extracted from one or both books.")
@@ -99,7 +96,7 @@ class BBB:
         if sentence_transformer is None:
             sentence_transformer = self._create_sentence_transformer()
 
-        aligner = ChapterAligner(
+        aligned_chapters = ChapterAligner(
             source_chapters,
             target_chapters,
             chapter_pairs,
@@ -107,19 +104,18 @@ class BBB:
             self.target_language,
             self.threads,
             sentence_transformer
-        )
-        aligned_chapters = aligner.run()
+        ).run()
 
         if not aligned_chapters:
             self.log.error("No aligned chapters produced.")
             return
         
-        builder = BookBuilder(
-            source_book = source_book,
-            target_book = target_book,
+        new_book = BookBuilder(
+            source_path = self.source_epub_path,
+            target_path = self.target_epub_path,
             blocks = aligned_chapters
-        )
-        new_book = builder.run()
+        ).run()
+        
         if not new_book:
             self.log.error("Failed to build the new book.")
             return

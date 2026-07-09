@@ -8,9 +8,9 @@ from bbb import progress
 
 
 class BookBuilder:
-    def __init__(self, source_book: epub.EpubBook, target_book: epub.EpubBook, blocks: List[Dict[str, Any]]):
-        self.source_book = source_book
-        self.target_book = target_book
+    def __init__(self, source_path: str, target_path: str, blocks: List[Dict[str, Any]]):
+        self.source_path = source_path
+        self.target_path = target_path
         self.blocks = blocks
         self.log = logging.getLogger(__name__)
 
@@ -168,7 +168,16 @@ class BookBuilder:
             rows.append(f'<tr><td class="col-left">{source_text}</td><td class="col-right">{target_text}</td></tr>')
         return '<table class="two-column-table">' + ''.join(rows) + '</table>'
 
-    def run(self) -> epub.EpubBook:
+    def run(self) -> epub.EpubBook | None:
+        self.source_book = epub.read_epub(self.source_path)
+        if not self.source_book:
+            self.log.error(f"Failed to read source EPUB file {self.source_path}.")
+            return None
+        self.target_book = epub.read_epub(self.target_path)
+        if not self.target_book:
+            self.log.error(f"Failed to read target EPUB file {self.target_path}.")
+            return None
+
         new_book = epub.EpubBook()
 
         self._copy_metadata(new_book)
