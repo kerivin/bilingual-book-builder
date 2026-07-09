@@ -13,7 +13,7 @@ class BBB:
                 target_epub_path,
                 source_language = None,
                 target_language = None,
-                output: str = 'bilingual.epub',
+                output: str = 'bilingual',
                 threads = 1,
                 auto_match_chapter_threshold = None,
                 only: str | None = None,
@@ -120,6 +120,8 @@ class BBB:
             self.log.error("Failed to build the new book.")
             return
         
+        if not self.output.lower().endswith(".epub"):
+            self.output += ".epub"
         epub.write_epub(self.output, new_book)
         self.log.info("EPUB written successfully.")
         

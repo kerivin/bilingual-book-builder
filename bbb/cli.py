@@ -10,7 +10,7 @@ def main() -> int:
     parser.add_argument('-t', '--target', type=str, required=True, help='Path to target (translation) language EPUB. Its settings have priority over source EPUB')
     parser.add_argument('-sl', '--source-language', type=str, default=None, help='Source language code, e.g. \"en\" (auto-detect if omitted)')
     parser.add_argument('-tl', '--target-language', type=str, default=None, help='Target language code, e.g. \"ru\" (auto-detect if omitted)')
-    parser.add_argument('-o', '--output', type=str, default='bilingual.epub', help='Output EPUB file (default: bilingual.epub)')
+    parser.add_argument('-o', '--output', type=str, default='bilingual', help='Output EPUB file (default: bilingual)')
     parser.add_argument('--threads', type=int, default=1, help='How many parallel threads for book processing')
     parser.add_argument('--auto-match-chapters', nargs='?', const=0.6, default=None, type=float, help='Auto match chapters. Optionally, you can provide a similarity threshold value (0.0-1.0)')
     parser.add_argument('--only', choices=['auto-match', 'extract'], default=None, help='Only extract chapters or auto-match chapters without generating a new EPUB')
