@@ -12,13 +12,13 @@ def main() -> int:
     parser.add_argument('-tl', '--target-language', type=str, default=None, help='Target language code, e.g. \"ru\" (auto-detect if omitted)')
     parser.add_argument('-o', '--output', type=str, default='bilingual', help='Output EPUB file (default: bilingual)')
     parser.add_argument('-m', '--manual', action='store_true', default=False, help='Match chapters manually in the interactive mode')
-    parser.add_argument('-v', '--verbosity', choices=['silent', 'progress', 'verbose'], default='progress', help='Silent (no progress), Progress (show progress bars), Verbose (all messages)')
     parser.add_argument('--threads', type=int, default=1, help='How many parallel threads for book processing')
     parser.add_argument('--auto-threshold', type=float, default=0.6, help='Similarity threshold value (0.0-1.0) for chapter auto-matching')
     parser.add_argument('--only', choices=['auto-match', 'extract'], default=None, help='Extract/auto-match chapters and display them without generating a new EPUB')
     parser.add_argument('--keep-source-chapters', action='store_true', default=False, help='Whether to keep source chapters that have no target translation')
     parser.add_argument('--keep-target-chapters', action='store_true', default=False, help='Whether to keep target chapters that have no source original')
     parser.add_argument('--model', type=str, default='LaBSE', help='Name or path to sentence embedding model (download LaBSE if omitted)')
+    parser.add_argument('-v', '--verbosity', choices=['silent', 'progress', 'verbose'], default='progress', help='Silent (no progress), Progress (show progress bars), Verbose (all messages)')
     
     args = parser.parse_args()
     if args.only == 'auto-match' and args.auto_match_chapters is None:
