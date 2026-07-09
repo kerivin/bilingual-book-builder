@@ -1,9 +1,12 @@
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+
 from bbb import progress
-from bertalign.encoder import Encoder
+from lingua import LanguageDetectorBuilder, LanguageDetector
 from bertalign import Bertalign
+from bertalign.encoder import Encoder
+from bertalign.languages import SupportedLanguages
 
 class ChapterAligner:
     def __init__(
@@ -25,15 +28,20 @@ class ChapterAligner:
         self.model_encoder = Encoder(model)
         self.log = logging.getLogger(__name__)
 
+        self.language_detector = LanguageDetectorBuilder.from_languages(*SupportedLanguages).with_low_accuracy_mode().build()
+
     def _align_pair(self, source_text: str, target_text: str) -> List[Dict[str, str]]:
         if not source_text.strip() or not target_text.strip():
             return []
 
         try:
             aligner = Bertalign(
-                self.model_encoder,
-                source_text, target_text,
-                self.source_language, self.target_language,
+                model_encoder = self.model_encoder,
+                src = source_text,
+                tgt = target_text,
+                src_lang = self.source_language,
+                tgt_lang = self.target_language,
+                language_detector = self.language_detector,
                 # progress_callback = progress.get_callback()
             )
             aligner.align_sents()
