@@ -43,7 +43,7 @@ class BookBuilder:
     def _copy_styles(self, new_book: epub.EpubBook) -> List[str]:
         css_links = []
         for item in self.target_book.get_items():
-            if item.get_type() == 'text/css':
+            if item.get_type() == ebooklib.ITEM_STYLE:
                 css = epub.EpubItem(
                     uid=item.get_id(),
                     file_name=item.file_name,
@@ -134,21 +134,18 @@ class BookBuilder:
     def _create_xhtml_item(self, book: epub.EpubBook, file_name: str, title: str, body_html: str, css_links: List[str], uid: Optional[str] = None):
         if uid is None:
             uid = f"chap_{uuid.uuid4().hex[:8]}"
-        html = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-<head>
-    <meta charset="utf-8"/>
-    <title>{title}</title>
-"""
+        
+        item = epub.EpubHtml(
+            uid=uid,
+            file_name=file_name,
+            media_type='application/xhtml+xml'
+        )
+        item.title = title
+        item.set_content(body_html)
+
         for css_path in css_links:
-            html += f'    <link rel="stylesheet" type="text/css" href="{css_path}"/>\n'
-        html += f"""</head>
-<body>
-{body_html}
-</body>
-</html>"""
-        item = epub.EpubHtml(uid=uid, file_name=file_name, media_type='application/xhtml+xml', content=html.encode('utf-8'))
+            item.add_link(href=css_path, rel='stylesheet', type='text/css')
+        
         book.add_item(item)
         return item
 
@@ -165,8 +162,8 @@ class BookBuilder:
         for seg in alignment:
             source_text = self._text_to_paragraphs(seg.get('source', ''))
             target_text = self._text_to_paragraphs(seg.get('target', ''))
-            rows.append(f'<tr><td class="col-left">{source_text}</td><td class="col-right">{target_text}</td></tr>')
-        return '<table class="two-column-table">' + ''.join(rows) + '</table>'
+            rows.append(f'<tr><td class="bilingual-left">{source_text}</td><td class="bilingual-right">{target_text}</td></tr>')
+        return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
 
     def run(self) -> epub.EpubBook | None:
         self.source_book = epub.read_epub(self.source_path)
@@ -185,32 +182,32 @@ class BookBuilder:
         css_links = self._copy_styles(new_book)
 
         base_dir = self._get_base_dir()
-        col_css = epub.EpubItem(
-            uid="columns_css",
-            file_name=base_dir + "columns.css",
+        bilingual_css = epub.EpubItem(
+            uid="bilingual_css",
+            file_name=base_dir + "bilingual.css",
             media_type='text/css',
             content=b"""
-            .two-column-table {
+            .bilingual-table {
                 width: 100%;
                 border-collapse: collapse;
                 table-layout: fixed;
             }
-            .two-column-table td {
+            .bilingual-table td {
                 display: table-cell !important;
                 vertical-align: top;
                 padding: 0.3em 1em;
                 width: 50%;
             }
-            .col-heading {
+            .bilingual-heading {
                 font-weight: bold;
                 text-align: center;
                 white-space: pre-wrap;
                 margin: 0.5em 0;
             }
-            .two-column-table,
-            .two-column-table tr,
-            .two-column-table td,
-            .col-heading {
+            .bilingual-table,
+            .bilingual-table tr,
+            .bilingual-table td,
+            .bilingual-heading {
                 border: 0 none transparent !important;
                 border-style: none !important;
                 border-width: 0 !important;
@@ -218,8 +215,8 @@ class BookBuilder:
             }
             """
         )
-        new_book.add_item(col_css)
-        css_links.append(base_dir + "columns.css")
+        new_book.add_item(bilingual_css)
+        css_links.append(bilingual_css.file_name)
 
         new_spine_ids = []
         toc_links = []
@@ -241,7 +238,7 @@ class BookBuilder:
                     target_title = target_info.get('title', 'Target')
                     self.log.info(f"Building {source_title} - {target_title}...")
 
-                    header_row = f'<tr class="title-row"><td class="col-left"><h2 class="col-heading">{source_title}</h2></td><td class="col-right"><h2 class="col-heading">{target_title}</h2></td></tr>'
+                    header_row = f'<tr class="title-row"><td class="bilingual-left"><h2 class="bilingual-heading">{source_title}</h2></td><td class="bilingual-right"><h2 class="bilingual-heading">{target_title}</h2></td></tr>'
                     body_html = self._build_two_column_html(alignment, header_row)
                     item = self._create_xhtml_item(new_book, file_name, f"{source_title} / {target_title}", body_html, css_links, uid)
                     new_spine_ids.append(item.get_id())
@@ -254,7 +251,7 @@ class BookBuilder:
                     self.log.info(f"Building source {title}...")
 
                     body = self._text_to_paragraphs(source_info.get('text', ''))
-                    item = self._create_xhtml_item(new_book, file_name, title, f'<div class="source-only">{body}</div>', css_links, uid)
+                    item = self._create_xhtml_item(new_book, file_name, title, f'<div class="bilingual-source-only">{body}</div>', css_links, uid)
                     new_spine_ids.append(item.get_id())
 
                     toc_title = source_info.get('toc_title', title.replace('\n', ' '))
@@ -265,7 +262,7 @@ class BookBuilder:
                     self.log.info(f"Building target {title}...")
 
                     body = self._text_to_paragraphs(target_info.get('text', ''))
-                    item = self._create_xhtml_item(new_book, file_name, title, f'<div class="target-only">{body}</div>', css_links, uid)
+                    item = self._create_xhtml_item(new_book, file_name, title, f'<div class="bilingual-target-only">{body}</div>', css_links, uid)
                     new_spine_ids.append(item.get_id())
 
                     toc_title = target_info.get('toc_title', title.replace('\n', ' '))
