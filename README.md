@@ -64,7 +64,7 @@ python -m bbb --help
 | `-sl LANG`<br>`--source-language LANG` | Source (original) language code.<br>Auto-detect if omitted | `-sl en`<br>`--source-language en` |
 | `-tl LANG`<br>`--target-language LANG` | Target (translation) language code.<br>Auto-detect if omitted | `-tl ru`<br>`--target-language ru` |
 | `-o FILENAME`<br>`--output FILENAME` | New EPUB name.<br>Default: bilingual | `-o book`<br>`--output book` |
-| `-m`<br>`--manual` | Match chapters manually in the interactive mode. Default: off | `-m` |
+| `-m`<br>`--manual` | Match chapters manually in the interactive mode.<br>Default: off if omitted | `-m` |
 | `--threads THREADS` | Number of parallel threads.<br>Default: 1 | `--threads 4` |
 | `--auto-threshold THRESHOLD` | Similarity threshold value (0.0-1.0) for chapter auto-matching.<br>Default: 0.6 | `--auto-threshold 0.4` |
 | `--only {auto-match,extract}` | Only show extracted chapters or auto-matched chapters without generating a new EPUB | `--only auto-match` |
