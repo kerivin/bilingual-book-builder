@@ -61,7 +61,6 @@ class ChapterExtractor:
         manifest_items = self.doc.package.manifest.items
         for itemref in self.doc.package.spine.itemrefs:
             idref = itemref['idref']
-            # Find the manifest item with this id
             href = None
             for item in manifest_items:
                 if item['id'] == idref:
@@ -69,7 +68,6 @@ class ChapterExtractor:
                     break
             if href is None:
                 continue
-            # Resolve relative href to full path inside the EPUB
             full_href = self._make_full_path(href)
             self._spine_full_hrefs.append(full_href)
             self._spine_idrefs.append(idref)
@@ -132,7 +130,6 @@ class ChapterExtractor:
         if not h_tag:
             return None
         raw = h_tag.get_text(separator='\n').strip()
-        # Remove common numbering artefacts
         cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
         return cleaned or raw
 
