@@ -64,29 +64,29 @@ def main() -> int:
 
     return 0
 
+def _get_log_level(verbosity):
+    match verbosity:
+        case 'silent':
+            return logging.ERROR
+        case 'progress':
+            return logging.WARNING
+        case _:
+            return logging.INFO
+
 def _setup_logger(verbosity):
+    modules = ['bbb', 'bertalign', 'sentence_transformers']
 
-    def get_log_level(verbosity):
-        match verbosity:
-            case 'silent':
-                return logging.ERROR
-            case 'progress':
-                return logging.WARNING
-            case _:
-                return logging.INFO
-
-    logger = logging.getLogger('bbb')
-    logger.setLevel(get_log_level(verbosity))
     class TqdmStream:
         def write(self, msg):
             if msg and msg.strip():
                 tqdm.write(msg, end='')
         def flush(self):
             pass
-
+    
     handler = logging.StreamHandler(stream=TqdmStream())
     handler.setFormatter(logging.Formatter('%(message)s'))
-    logger.addHandler(handler)
 
-    logging.getLogger('bertalign').setLevel(get_log_level(verbosity))
-    logging.getLogger('bertalign').addHandler(handler)
+    level = _get_log_level(verbosity)
+    for module in modules:
+        logging.getLogger(module).setLevel(level)
+        logging.getLogger(module).addHandler(handler)
