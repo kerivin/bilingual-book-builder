@@ -21,7 +21,7 @@ def main() -> int:
     parser.add_argument('-v', '--verbosity', choices=['silent', 'progress', 'verbose'], default='progress', help='Silent (no progress), Progress (show progress bars), Verbose (all messages)')
     
     args = parser.parse_args()
-    if args.only == 'auto-match' and args.auto_match_chapters is None:
+    if args.only == 'auto-match' and args.manual:
         parser.print_help()
         return 0
     
