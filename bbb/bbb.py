@@ -1,5 +1,5 @@
-from fast_ebook import epub
-import fast_ebook
+from ebooklib import epub
+import ebooklib
 import logging
 from bbb import progress
 from bbb.chapter_extractor import ChapterExtractor
@@ -55,13 +55,17 @@ class BBB:
             check_language(self.target_language)
 
     def run(self):
-        books = epub.read_epubs([self.source_epub_path, self.target_epub_path], workers=2)
-        if not books or len(books) != 2:
-            self.log.error("Failed to read both EPUB files.")
+        source_book = epub.read_epub(self.source_epub_path)
+        if not source_book:
+            self.log.error(f"Failed to read source EPUB file {self.source_epub_path}.")
+            return
+        target_book = epub.read_epub(self.target_epub_path)
+        if not target_book:
+            self.log.error(f"Failed to read source EPUB file {self.target_epub_path}.")
             return
 
-        source_chapters = ChapterExtractor(book = books[0], force_show = self.only == 'extract').get_chapter_list()
-        target_chapters = ChapterExtractor(book = books[1], force_show = self.only == 'extract').get_chapter_list()
+        source_chapters = ChapterExtractor(book = source_book, force_show = self.only == 'extract').get_chapter_list()
+        target_chapters = ChapterExtractor(book = target_book, force_show = self.only == 'extract').get_chapter_list()
 
         if not source_chapters or not target_chapters:
             self.log.error("No chapters extracted from one or both books.")
@@ -111,8 +115,8 @@ class BBB:
             return
         
         builder = BookBuilder(
-            source_book = books[0],
-            target_book = books[1],
+            source_book = source_book,
+            target_book = target_book,
             blocks = aligned_chapters
         )
         new_book = builder.run()

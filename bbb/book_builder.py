@@ -1,10 +1,11 @@
 import os
 import uuid
 from typing import List, Dict, Any, Optional
-from fast_ebook import epub
-import fast_ebook
+from ebooklib import epub
+import ebooklib
 import logging
 from bbb import progress
+
 
 class BookBuilder:
     def __init__(self, source_book: epub.EpubBook, target_book: epub.EpubBook, blocks: List[Dict[str, Any]]):
@@ -14,56 +15,43 @@ class BookBuilder:
         self.log = logging.getLogger(__name__)
 
     def _get_base_dir(self) -> str:
-        spine = self.target_book.get_spine()
+        spine = self.target_book.spine
         if not spine:
             return "text/"
         first_id = spine[0][0]
         item = self.target_book.get_item_with_id(first_id)
         if item is None:
             return "text/"
-        href = item.get_name()
+        href = item.file_name
         return os.path.dirname(href) + "/" if os.path.dirname(href) else ""
 
     def _copy_cover(self, new_book: epub.EpubBook) -> None:
         cover_id = None
-        for meta in self.target_book.get_metadata('', 'meta'):
-            if isinstance(meta, tuple) and meta[1].get('name') == 'cover':
-                cover_id = meta[1].get('content')
-                break
-            elif isinstance(meta, dict) and meta.get('name') == 'cover':
-                cover_id = meta.get('content')
+        opf_meta = self.target_book.get_metadata('http://www.idpf.org/2007/opf', 'meta')
+        for val, attrs in opf_meta:
+            if attrs.get('name') == 'cover':
+                cover_id = attrs.get('content')
                 break
 
         cover_item = None
         if cover_id:
             cover_item = self.target_book.get_item_with_id(cover_id)
 
-        if not cover_item:
-            for item in self.target_book.get_items():
-                if item.get_type() == epub.ITEM_COVER:
-                    cover_item = item
-                    break
-
-        if not cover_item:
-            for item in self.target_book.get_items():
-                if item.get_type() == epub.ITEM_IMAGE and 'cover' in item.get_name().lower():
-                    cover_item = item
-                    break
-
         if cover_item:
-            new_book.set_cover(cover_item.get_name(), cover_item.get_content())
+            new_book.set_cover(cover_item.file_name, cover_item.get_content())
 
     def _copy_styles(self, new_book: epub.EpubBook) -> List[str]:
         css_links = []
         for item in self.target_book.get_items():
-            if item.get_type() == epub.ITEM_STYLE:
-                css = epub.EpubCss(
+            if item.get_type() == 'text/css':
+                css = epub.EpubItem(
                     uid=item.get_id(),
-                    file_name=item.get_name(),
+                    file_name=item.file_name,
+                    media_type='text/css',
                     content=item.get_content()
                 )
                 new_book.add_item(css)
-                css_links.append(item.get_name())
+                css_links.append(item.file_name)
         return css_links
 
     def _copy_metadata(self, new_book: epub.EpubBook):
@@ -80,7 +68,7 @@ class BookBuilder:
             title = tgt_titles[0]
         elif src_titles:
             title = src_titles[0]
-        
+
         self.log.info(f"New book title: {title}")
         new_book.set_title(title)
 
@@ -99,7 +87,7 @@ class BookBuilder:
                 except TypeError:
                     new_book.add_author(creator[0])
                     authors += "creator[0], "
-            
+
             self.log.info(f"New book authors: {authors}")
 
         set_authors_from(self.source_book)
@@ -130,7 +118,7 @@ class BookBuilder:
             tgt_vals = get_metadata(self.target_book, key)
             for val in src_vals + tgt_vals:
                 new_book.add_metadata('DC', key, val)
-        
+
         identifier = None
         target_identifiers = get_metadata(self.target_book, 'identifier')
         if target_identifiers:
@@ -188,9 +176,10 @@ class BookBuilder:
         css_links = self._copy_styles(new_book)
 
         base_dir = self._get_base_dir()
-        col_css = epub.EpubCss(
+        col_css = epub.EpubItem(
             uid="columns_css",
             file_name=base_dir + "columns.css",
+            media_type='text/css',
             content=b"""
             .two-column-table {
                 width: 100%;
@@ -249,7 +238,7 @@ class BookBuilder:
                     new_spine_ids.append(item.get_id())
 
                     toc_title = target_info.get('toc_title', target_title.replace('\n', ' '))
-                    toc_links.append(epub.Link(item.get_name(), toc_title, item.get_id()))
+                    toc_links.append(epub.Link(item.file_name, toc_title, item.get_id()))
 
                 elif source_info is not None:
                     title = source_info.get('title', f'Chapter {block_idx}')
@@ -260,7 +249,7 @@ class BookBuilder:
                     new_spine_ids.append(item.get_id())
 
                     toc_title = source_info.get('toc_title', title.replace('\n', ' '))
-                    toc_links.append(epub.Link(item.get_name(), title, item.get_id()))
+                    toc_links.append(epub.Link(item.file_name, title, item.get_id()))
 
                 elif target_info is not None:
                     title = target_info.get('title', f'Chapter {block_idx}')
@@ -271,8 +260,8 @@ class BookBuilder:
                     new_spine_ids.append(item.get_id())
 
                     toc_title = target_info.get('toc_title', title.replace('\n', ' '))
-                    toc_links.append(epub.Link(item.get_name(), toc_title, item.get_id()))
-                
+                    toc_links.append(epub.Link(item.file_name, toc_title, item.get_id()))
+
                 progress.update('building')
 
         new_book.add_item(epub.EpubNcx())

@@ -1,8 +1,8 @@
 import re
 from typing import List, Dict, Any
 from bs4 import BeautifulSoup
-from fast_ebook import epub
-import fast_ebook
+from ebooklib import epub
+import ebooklib
 from enum import Enum
 import logging
 from bbb import progress, utils
@@ -74,14 +74,24 @@ class ChapterExtractor:
         flat_entries = []
         def flatten(items):
             for item in items:
-                flat_entries.append((item.title, item.href))
-                if item.children:
-                    flatten(item.children)
+                if hasattr(item, 'title'):
+                    link = item
+                    children = getattr(item, 'children', [])
+                elif isinstance(item, tuple) and len(item) == 2:
+                    link, children = item
+                    if not hasattr(link, 'title'):
+                        continue
+                else:
+                    continue
+
+                flat_entries.append((link.title, link.href))
+                if children:
+                    flatten(children)
         flatten(self.book.toc)
 
         spine_hrefs = []
         spine_idrefs = []
-        for idref, _ in self.book.get_spine():
+        for idref, _ in self.book.spine:
             item = self.book.get_item_with_id(idref)
             if item:
                 spine_hrefs.append(item.get_name())
