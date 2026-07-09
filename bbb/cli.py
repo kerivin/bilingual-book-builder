@@ -35,8 +35,6 @@ def main() -> int:
 
     logger = logging.getLogger('bbb')
     logger.setLevel(get_log_level(args.verbosity))
-    for h in logger.handlers[:]:
-        logger.removeHandler(h)
     class TqdmStream:
         def write(self, msg):
             if msg and msg.strip():
@@ -47,7 +45,9 @@ def main() -> int:
     handler = logging.StreamHandler(stream=TqdmStream())
     handler.setFormatter(logging.Formatter('%(message)s'))
     logger.addHandler(handler)
-    # handler.setLevel(logger.level)
+
+    logging.getLogger('bertalign').setLevel(get_log_level(args.verbosity))
+    logging.getLogger('bertalign').addHandler(handler)
 
     bars = {}
     def progress_callback(phase_id, description: str, step: int, total: int, message: str = None):
