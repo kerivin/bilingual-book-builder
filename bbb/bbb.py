@@ -8,28 +8,30 @@ from bbb.book_builder import BookBuilder
 
 class BBB:
     def __init__(self,
-                source_epub_path,
-                target_epub_path,
+                source_path,
+                target_path,
                 source_language = None,
                 target_language = None,
                 output: str = 'bilingual',
-                threads = 1,
-                auto_match_chapter_threshold = None,
+                manual: bool = False,
+                threads: int = 1,
+                auto_threshold: float = 0.6,
                 only: str | None = None,
                 keep_unmatched_source_chapters = False,
                 keep_unmatched_target_chapters = False,
                 model = 'LaBSE',
                 verbosity: str = 'progress',
-                progress_callback = None
+                progress_callback = None,
             ):
-        self.source_epub_path = source_epub_path
-        self.target_epub_path = target_epub_path
+        self.source_path = source_path
+        self.target_path = target_path
         self.source_language = source_language
         self.target_language = target_language
         self._check_languages()
         self.output = output
+        self.manual = manual
         self.threads = threads
-        self.auto_match_chapter_threshold = auto_match_chapter_threshold
+        self.auto_threshold = auto_threshold
         self.only = only
         self.keep_unmatched_source_chapters = keep_unmatched_source_chapters
         self.keep_unmatched_target_chapters = keep_unmatched_target_chapters
@@ -55,12 +57,12 @@ class BBB:
 
     def run(self):
         source_chapters = ChapterExtractor(
-            path = self.source_epub_path,
+            path = self.source_path,
             force_show = self.only == 'extract'
         ).get_chapter_list()
 
         target_chapters = ChapterExtractor(
-            path = self.target_epub_path,
+            path = self.target_path,
             force_show = self.only == 'extract'
         ).get_chapter_list()
 
@@ -75,22 +77,26 @@ class BBB:
             source_chapters = source_chapters,
             target_chapters = target_chapters,
             keep_unmatched_source_chapters = self.keep_unmatched_source_chapters,
-            keep_unmatched_target_chapters = self.keep_unmatched_target_chapters
+            keep_unmatched_target_chapters = self.keep_unmatched_target_chapters,
         )
         
         sentence_transformer = None
         chapter_pairs = []
-        if self.auto_match_chapter_threshold is not None:
+        if not self.manual:
             sentence_transformer = self._create_sentence_transformer()
             chapter_pairs = mapper.run_auto(
                 model = sentence_transformer,
                 force_show = progress.get_verbosity() == 'verbose' or self.only == 'auto-match',
-                threshold = self.auto_match_chapter_threshold
+                threshold = self.auto_threshold,
             )
         else:
             chapter_pairs = mapper.run_interactive()
         
-        if self.only == 'auto-match' or not chapter_pairs:
+        if not chapter_pairs:
+            self.log.error("No chapters to align")
+            return
+        
+        if self.only == 'auto-match':
             return
         
         if sentence_transformer is None:
@@ -103,7 +109,7 @@ class BBB:
             self.source_language,
             self.target_language,
             self.threads,
-            sentence_transformer
+            sentence_transformer,
         ).run()
 
         if not aligned_chapters:
@@ -111,11 +117,11 @@ class BBB:
             return
         
         new_book = BookBuilder(
-            source_path = self.source_epub_path,
-            target_path = self.target_epub_path,
-            blocks = aligned_chapters
+            source_path = self.source_path,
+            target_path = self.target_path,
+            blocks = aligned_chapters,
         ).run()
-        
+
         if not new_book:
             self.log.error("Failed to build the new book.")
             return

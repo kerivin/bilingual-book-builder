@@ -6,40 +6,25 @@ from typing import List, Dict, Any, Optional, Tuple
 from bs4 import BeautifulSoup
 from epub_utils import Document
 
-# Preserved import for logging helpers (assumed available)
-from bbb import utils
+from bbb import progress, utils
 
 
 class ChapterExtractor:
-    """Robust, language‑agnostic chapter extractor for EPUB files using epub-utils."""
-
     def __init__(self, path: str, force_show: bool = False,
                  preview_words: int = 20, min_chars: int = 200):
-        """
-        Args:
-            doc: epub‑utils Document object.
-            force_show: if True, log chapter titles and previews.
-            preview_words: number of words in the text preview.
-            min_chars: minimum combined text length for a chapter to be kept.
-        """
         self.doc = Document(path)
         self.force_show = force_show
         self.min_chars = min_chars
         self.preview_words = preview_words
         self.log = logging.getLogger(__name__)
 
-        # Determine the base directory of the OPF file (e.g., "OEBPS/").
-        rootfile_path = self.doc.container.rootfile_path  # e.g., "OEBPS/content.opf"
+        rootfile_path = self.doc.container.rootfile_path
         self._opf_base = str(Path(rootfile_path).parent) + "/" if Path(rootfile_path).parent != Path('.') else ""
 
-        # Build a list of (full_href, idref) for every spine item in reading order.
         self._spine_full_hrefs: List[str] = []
         self._spine_idrefs: List[str] = []
         self._build_spine_info()
 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
     def get_chapter_list(self) -> List[Dict[str, Any]]:
         """Return a list of chapter dictionaries with keys:
         title, toc_title, full_text, word_count, preview, item_id, index.
@@ -49,9 +34,6 @@ class ChapterExtractor:
             return chapters
         return self._extract_via_headers()
 
-    # ------------------------------------------------------------------
-    # Logging / output helpers
-    # ------------------------------------------------------------------
     def _show_chapters(self, chapters: List[Dict[str, Any]]) -> None:
         if not self.force_show:
             return
@@ -74,9 +56,6 @@ class ChapterExtractor:
             "item_id": item_id
         }
 
-    # ------------------------------------------------------------------
-    # Spine construction
-    # ------------------------------------------------------------------
     def _build_spine_info(self) -> None:
         """Fill self._spine_full_hrefs and self._spine_idrefs using the OPF manifest."""
         manifest_items = self.doc.package.manifest.items
@@ -101,29 +80,17 @@ class ChapterExtractor:
             return href.lstrip('/')
         return f"{self._opf_base}{href}"
 
-    # ------------------------------------------------------------------
-    # TOC target → spine mapping
-    # ------------------------------------------------------------------
     def _resolve_toc_target_to_spine_index(self, target: str) -> Optional[int]:
-        """
-        Given a TOC target (e.g., 'index_split_001.xhtml'), try to find its
-        spine index (0‑based) in self._spine_full_hrefs.
-        Uses several path variants to handle different publisher conventions.
-        """
-        # Clean anchor
         base = target.split('#')[0]
-        # List of candidate full paths to try
         candidates = [
-            base,                                          # exact as given
-            self._make_full_path(base),                    # relative to OPF base
-            self._make_full_path(Path(base).name),         # filename only
+            base,
+            self._make_full_path(base),
+            self._make_full_path(Path(base).name),
         ]
-        # Also try common sub‑folder prefixes
         for prefix in ('xhtml/', 'text/', 'OEBPS/', 'OEBPS/text/', 'OEBPS/xhtml/'):
             candidates.append(self._make_full_path(f"{prefix}{base}"))
             candidates.append(self._make_full_path(f"{prefix}{Path(base).name}"))
 
-        # Remove duplicates while preserving order
         seen = set()
         unique_candidates = []
         for c in candidates:
@@ -138,11 +105,7 @@ class ChapterExtractor:
                 continue
         return None
 
-    # ------------------------------------------------------------------
-    # XHTML loading & text extraction
-    # ------------------------------------------------------------------
     def _load_soup(self, full_href: str) -> Optional[BeautifulSoup]:
-        """Load an XHTML file from the EPUB and return a BeautifulSoup object."""
         try:
             content = self.doc.get_file_by_path(full_href)
             return BeautifulSoup(content.to_str(), "html.parser")
@@ -150,7 +113,6 @@ class ChapterExtractor:
             return None
 
     def _extract_body_text(self, soup: BeautifulSoup) -> str:
-        """Extract visible text from a soup, discarding scripts, images, etc."""
         for tag in soup(["script", "style", "img", "figure", "svg", "canvas"]):
             tag.decompose()
         parts = []
@@ -163,7 +125,6 @@ class ChapterExtractor:
         return "\n\n".join(parts)
 
     def _get_first_heading(self, full_href: str) -> Optional[str]:
-        """Return the text of the first <h1>‑<h6> in the given XHTML file."""
         soup = self._load_soup(full_href)
         if not soup:
             return None
@@ -175,16 +136,11 @@ class ChapterExtractor:
         cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
         return cleaned or raw
 
-    # ------------------------------------------------------------------
-    # Primary extraction: TOC‑guided spine aggregation
-    # ------------------------------------------------------------------
     def _extract_from_toc(self) -> List[Dict[str, Any]]:
-        """Build chapter list using the EPUB's table of contents."""
         toc = self.doc.toc
         if not toc:
             return []
 
-        # Flatten all TOC items (parents and children) in depth‑first order.
         all_items = []
         def collect_all(nodes):
             for node in nodes:
@@ -195,7 +151,6 @@ class ChapterExtractor:
         if not all_items:
             return []
 
-        # Map each TOC item to a spine index.
         entries = []
         for item in all_items:
             idx = self._resolve_toc_target_to_spine_index(item.target)
@@ -208,10 +163,8 @@ class ChapterExtractor:
         if not entries:
             return []
 
-        # Sort by spine index.
         entries.sort(key=lambda e: e["spine_index"])
 
-        # Duplicate indices break the range‑based approach → fall back.
         indices = [e["spine_index"] for e in entries]
         if len(indices) != len(set(indices)):
             self.log.debug("Duplicate spine indices in TOC; falling back to heading extraction.")
@@ -222,7 +175,6 @@ class ChapterExtractor:
             start = entry["spine_index"]
             end = entries[i + 1]["spine_index"] if i + 1 < len(entries) else len(self._spine_full_hrefs)
 
-            # Concatenate text from all spine documents in this chapter's range.
             parts = []
             for idx in range(start, end):
                 soup = self._load_soup(self._spine_full_hrefs[idx])
@@ -235,7 +187,6 @@ class ChapterExtractor:
             if len(full_text) < self.min_chars:
                 continue
 
-            # Title: try the first heading of the first spine document, else TOC label.
             heading = self._get_first_heading(self._spine_full_hrefs[start])
             title = heading if heading else entry["label"]
 
@@ -252,12 +203,8 @@ class ChapterExtractor:
         self._show_chapters(chapters)
         return chapters
 
-    # ------------------------------------------------------------------
-    # Fallback: split the whole book at HTML headings
-    # ------------------------------------------------------------------
     def _extract_via_headers(self) -> List[Dict[str, Any]]:
-        """Fallback method: split the concatenated book text at HTML heading elements."""
-        heading_positions = []   # (title, cumulative_position)
+        heading_positions = []
         all_text = ""
 
         for full_href in self._spine_full_hrefs:
@@ -266,13 +213,11 @@ class ChapterExtractor:
                 continue
             for tag in soup(["script", "style", "img", "figure", "svg", "canvas"]):
                 tag.decompose()
-            # Record each heading and its starting position in the global text.
             for h_tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
                 raw = h_tag.get_text(separator='\n').strip()
                 cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
                 title = cleaned or raw
                 heading_positions.append((title, len(all_text)))
-            # Append the body text of this file.
             text = soup.get_text(" ", strip=True)
             if text:
                 all_text += text + " "
