@@ -66,7 +66,7 @@ python -m bbb --help
 | `-o FILENAME`<br>`--output FILENAME` | New EPUB name.<br>Default: bilingual | `-o book.epub`<br>`--output book.epub` |
 | `--threads THREADS` | Number of parallel threads.<br>Default: 1 | `--threads 4` |
 | `--auto-match-chapters [THRESHOLD]` | Auto-match chapters instead of manual matching.<br>Default: off | `--auto-match-chapters`<br>`--auto-match-chapters 0.8` |
-| `--only {auto-match,extract}` | Only show extracted chapters or auto-matched chapters without generating a new EPUB | `--only-match-chapters` |
+| `--only {auto-match,extract}` | Only show extracted chapters or auto-matched chapters without generating a new EPUB | `--only auto-match` |
 | `--keep-source-chapters` | Keep source (original) chapters with no matching target (translation) chapters.<br>Default: off if omitted | `--keep-source-chapters` |
 | `--keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: off if omitted | `--keep-target-chapters` |
 | `--model` | Name or path to sentence embedding model<br>Default: [LaBSE](https://huggingface.co/sentence-transformers/LaBSE) | `--model "/home/models/model"` |
