@@ -334,5 +334,5 @@ class ChapterMapper:
             with utils.temporary_log_level(self.log, logging.INFO):
                 self._show_chapter_mapping()
 
-        self.log.info("\nAuto-matching completed.")
+        self.log.info("Auto-matching completed.")
         return self._export_mapping()

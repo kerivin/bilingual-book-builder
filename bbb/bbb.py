@@ -19,7 +19,8 @@ class BBB:
                 only: str | None = None,
                 keep_unmatched_source_chapters = False,
                 keep_unmatched_target_chapters = False,
-                model = 'LaBSE',
+                align_model = 'LaBSE',
+                split_model = 'sat-3l',
                 verbosity: str = 'progress',
                 progress_callback = None,
             ):
@@ -27,7 +28,6 @@ class BBB:
         self.target_path = target_path
         self.source_language = source_language
         self.target_language = target_language
-        self._check_languages()
         self.output = output
         self.manual = manual
         self.threads = threads
@@ -35,25 +35,15 @@ class BBB:
         self.only = only
         self.keep_unmatched_source_chapters = keep_unmatched_source_chapters
         self.keep_unmatched_target_chapters = keep_unmatched_target_chapters
-        self.model = model
+        self.align_model = align_model
+        self.split_model = split_model
 
         progress.init(verbosity, progress_callback)
         self.log = logging.getLogger(__name__)
     
     def _create_sentence_transformer(self):
         from sentence_transformers import SentenceTransformer
-        return SentenceTransformer(self.model)
-
-    def _check_languages(self):
-        from bertalign.utils import check_language
-
-        if self.source_language is not None:
-            self.source_language = self.source_language.lower()
-            check_language(self.source_language)
-        
-        if self.target_language is not None:
-            self.target_language = self.target_language.lower()
-            check_language(self.target_language)
+        return SentenceTransformer(self.align_model)
 
     def run(self):
         source_chapters = ChapterExtractor(
@@ -110,6 +100,7 @@ class BBB:
             self.target_language,
             self.threads,
             sentence_transformer,
+            self.split_model,
         ).run()
 
         if not aligned_chapters:
