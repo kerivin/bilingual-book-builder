@@ -20,7 +20,7 @@ class BBB:
                 keep_unmatched_source_chapters = False,
                 keep_unmatched_target_chapters = False,
                 align_model = 'LaBSE',
-                split_model = 'wtp-bert-tiny',
+                split_model = 'sat-3l',
                 verbosity: str = 'progress',
                 progress_callback = None,
             ):

@@ -42,22 +42,20 @@ class ChapterAligner:
         if self.target_language is None:
             texts_to_detect_language.append(target_text)
 
-        if len(texts_to_detect_language) > 0:
+        if texts_to_detect_language:
+            languages = []
+            self.log.info(f"Detecting language...")
             try:
-                if not self.source_language and not self.target_language:
-                    languages = self.language_detector.detect_languages_in_parallel_of(texts_to_detect_language)
+                languages = self.language_detector.detect_languages_in_parallel_of(texts_to_detect_language)
             except Exception as e:
                 e.add_note("^ LanguageDetector")
-                raise
+                languages = []
 
-            if not languages or len(languages) != len(texts_to_detect_language):
-                self.log.error("Languages not detected")
-                return []
-
-            if not self.source_language:
-                self.source_language = languages[0]
-            if not self.target_language:
-                self.target_language = languages[1] if len(languages) > 1 else languages[0]
+            if languages:
+                if not self.source_language:
+                    self.source_language = languages[0]
+                if not self.target_language:
+                    self.target_language = languages[1] if len(languages) > 1 else languages[0]
 
         try:
             source_sentences = self.splitter.run(source_text, self.source_language)
