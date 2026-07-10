@@ -57,21 +57,21 @@ python -m bbb --help
 
 ## Options
 
-| Command | Description | Example
-| --- | --- | --- |
-| `-s SOURCE`<br>`--source SOURCE` | Path to source (original) EPUB | `-s original.epub`<br>`--source "original with spaces.epub"` |
-| `-t TARGET`<br>`--target TARGET` | Path to target (translation) EPUB | `-t translation.epub`<br>`--target "translation with spaces.epub"` |
-| `-sl LANG`<br>`--source-language LANG` | Source (original) language code.<br>Auto-detect if omitted | `-sl en`<br>`--source-language en` |
-| `-tl LANG`<br>`--target-language LANG` | Target (translation) language code.<br>Auto-detect if omitted | `-tl ru`<br>`--target-language ru` |
-| `-o FILENAME`<br>`--output FILENAME` | New EPUB name.<br>Default: bilingual | `-o book`<br>`--output book` |
-| `-m`<br>`--manual` | Match chapters manually in the interactive mode.<br>Default: off if omitted | `-m` |
-| `--threads THREADS` | Number of parallel threads.<br>Default: 1 | `--threads 4` |
-| `--auto-threshold THRESHOLD` | Similarity threshold value (0.0-1.0) for chapter auto-matching.<br>Default: 0.6 | `--auto-threshold 0.4` |
-| `--only {auto-match,extract}` | Only show extracted chapters or auto-matched chapters without generating a new EPUB | `--only auto-match` |
-| `--keep-source-chapters` | Keep source (original) chapters with no matching target (translation) chapters.<br>Default: off if omitted | `--keep-source-chapters` |
-| `--keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: off if omitted | `--keep-target-chapters` |
-| `--model` | Name or path to sentence embedding model<br>Default: [LaBSE](https://huggingface.co/sentence-transformers/LaBSE) | `--model "/home/models/model"` |
-| `-v {silent,progress,verbose}`<br>`--verbosity {silent,progress,verbose}` | How verbose logging is.<br>Default: progress | `-v progress`<br>`--verbosity silent` |
+| Command | Description
+| --- | --- |
+| `-s SOURCE`<br>`--source SOURCE` | Path to source (original) EPUB |
+| `-t TARGET`<br>`--target TARGET` | Path to target (translation) EPUB
+| `-sl LANG`<br>`--source-language LANG` | Source (original) language code.<br>Auto-detect if omitted
+| `-tl LANG`<br>`--target-language LANG` | Target (translation) language code.<br>Auto-detect if omitted
+| `-o FILENAME`<br>`--output FILENAME` | New EPUB name.<br>Default: bilingual
+| `-m`<br>`--manual` | Match chapters manually in the interactive mode.<br>Default: off if omitted
+| `--threads THREADS` | Number of parallel threads.<br>Default: 1
+| `--auto-threshold THRESHOLD` | Similarity threshold value (0.0-1.0) for chapter auto-matching.<br>Default: 0.6
+| `--only {auto-match,extract}` | Only show extracted chapters or auto-matched chapters without generating a new EPUB
+| `--keep-source-chapters` | Keep source (original) chapters with no matching target (translation) chapters.<br>Default: off if omitted
+| `--keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: off if omitted
+| `--model` | Name or path to sentence embedding model<br>Default: [LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
+| `-v {silent,progress,verbose}`<br>`--verbosity {silent,progress,verbose}` | How verbose logging is.<br>Default: progress
 
 
 Typical usage:
