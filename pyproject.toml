@@ -11,6 +11,8 @@ requires-python = ">=3.13"
 dependencies = [
     "ebooklib>=0.20",
     "epub-utils>=0.1.0a1",
+    "lingua-language-detector>=1.8.0",
+    "wtpsplit>=2.2.1",
     "bs4>=0.0.2",
     "numpy>=2.4.6",
     "tqdm"

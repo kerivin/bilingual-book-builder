@@ -3,10 +3,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
 from bbb import progress
-from lingua import LanguageDetectorBuilder, LanguageDetector
+from bbb.chapter_splitter import ChapterSplitter
+from lingua import LanguageDetectorBuilder, LanguageDetector, Language, IsoCode639_1
+from sentence_transformers import SentenceTransformer
 from bertalign import Bertalign
 from bertalign.encoder import Encoder
-from bertalign.languages import SupportedLanguages
 
 class ChapterAligner:
     def __init__(
@@ -14,34 +15,62 @@ class ChapterAligner:
         source_chapters: List[Dict[str, Any]],
         target_chapters: List[Dict[str, Any]],
         chapter_pairs,
-        source_language,
-        target_language,
+        source_language: str,
+        target_language: str,
         threads: int,
-        model
+        align_model: SentenceTransformer,
+        split_model: str,
     ):
         self.source_chapters = source_chapters
         self.target_chapters = target_chapters
         self.chapter_pairs = chapter_pairs
-        self.source_language = source_language
-        self.target_language = target_language
+        self.source_language = Language.from_iso_code_639_1(IsoCode639_1.from_str(source_language)) if source_language else None
+        self.target_language = Language.from_iso_code_639_1(IsoCode639_1.from_str(target_language)) if target_language else None
         self.threads = threads
-        self.model_encoder = Encoder(model)
+        self.align_model_encoder = Encoder(align_model)
+        self.splitter = ChapterSplitter(split_model)
+        self.language_detector: LanguageDetector = LanguageDetectorBuilder.from_all_languages().with_low_accuracy_mode().build()
         self.log = logging.getLogger(__name__)
-
-        self.language_detector = LanguageDetectorBuilder.from_languages(*SupportedLanguages).with_low_accuracy_mode().build()
 
     def _align_pair(self, source_text: str, target_text: str) -> List[Dict[str, str]]:
         if not source_text.strip() or not target_text.strip():
             return []
 
+        texts_to_detect_language = []
+        if self.source_language is None:
+            texts_to_detect_language.append(source_text)
+        if self.target_language is None:
+            texts_to_detect_language.append(target_text)
+
+        if len(texts_to_detect_language) > 0:
+            try:
+                if not self.source_language and not self.target_language:
+                    languages = self.language_detector.detect_languages_in_parallel_of(texts_to_detect_language)
+            except Exception as e:
+                e.add_note("^ LanguageDetector")
+                raise
+
+            if not languages or len(languages) != len(texts_to_detect_language):
+                self.log.error("Languages not detected")
+                return []
+
+            if not self.source_language:
+                self.source_language = languages[0]
+            if not self.target_language:
+                self.target_language = languages[1] if len(languages) > 1 else languages[0]
+
+        try:
+            source_sentences = self.splitter.run(source_text, self.source_language)
+            target_sentences = self.splitter.run(target_text, self.target_language)
+        except Exception as e:
+            e.add_note("^ ChapterSplitter")
+            raise
+
         try:
             aligner = Bertalign(
-                model_encoder = self.model_encoder,
-                src = source_text,
-                tgt = target_text,
-                src_lang = self.source_language,
-                tgt_lang = self.target_language,
-                language_detector = self.language_detector,
+                model_encoder = self.align_model_encoder,
+                source_sentences = source_sentences,
+                target_sentences = target_sentences,
                 # progress_callback = progress.get_callback()
             )
             aligner.align_sents()
@@ -55,10 +84,8 @@ class ChapterAligner:
                 aligned.append({'source': src_seg, 'target': tgt_seg})
             return aligned
         except Exception as e:
-            e.add_note("^ Bertalign error")
+            e.add_note("^ Bertalign")
             raise
-            # print(f"Bertalign error: {e}")
-            # return [{'source': source_text, 'target': target_text}]
 
     def run(self) -> List[Dict[str, Any]]:
         """
