@@ -152,47 +152,125 @@ class ChapterExtractor:
         for item in all_items:
             idx = self._resolve_toc_target_to_spine_index(item.target)
             if idx is not None:
+                anchor = item.target.split('#', 1)[1] if '#' in item.target else None
                 entries.append({
                     "label": item.label,
                     "spine_index": idx,
+                    "anchor": anchor,
                     "full_href": self._spine_full_hrefs[idx],
                 })
         if not entries:
             return []
 
-        entries.sort(key=lambda e: e["spine_index"])
-
-        indices = [e["spine_index"] for e in entries]
-        if len(indices) != len(set(indices)):
-            self.log.debug("Duplicate spine indices in TOC; falling back to heading extraction.")
-            return []
+        grouped = {}
+        order = []
+        for e in entries:
+            if e["spine_index"] not in grouped:
+                grouped[e["spine_index"]] = []
+                order.append(e["spine_index"])
+            grouped[e["spine_index"]].append(e)
 
         chapters = []
-        for i, entry in enumerate(entries):
-            start = entry["spine_index"]
-            end = entries[i + 1]["spine_index"] if i + 1 < len(entries) else len(self._spine_full_hrefs)
-
-            parts = []
-            for idx in range(start, end):
-                soup = self._load_soup(self._spine_full_hrefs[idx])
-                if soup:
-                    text = self._extract_body_text(soup)
-                    if text:
-                        parts.append(text)
-
-            full_text = "\n\n".join(parts).strip()
-            if len(full_text) < self.min_chars:
+        for idx in order:
+            file_entries = grouped[idx]
+            full_href = self._spine_full_hrefs[idx]
+            soup = self._load_soup(full_href)
+            if not soup:
                 continue
 
-            heading = self._get_first_heading(self._spine_full_hrefs[start])
-            title = heading if heading else entry["label"]
+            if len(file_entries) == 1 and file_entries[0]["anchor"] is None:
+                text = self._extract_body_text(soup)
+                if len(text) >= self.min_chars:
+                    heading = self._get_first_heading(full_href)
+                    title = heading if heading else file_entries[0]["label"]
+                    chapters.append(self._create_chapter(
+                        title=title,
+                        toc_title=file_entries[0]["label"],
+                        full_text=text,
+                        item_id=self._spine_idrefs[idx]
+                    ))
+                continue
 
-            chapters.append(self._create_chapter(
-                title=title,
-                toc_title=entry["label"],
-                full_text=full_text,
-                item_id=self._spine_idrefs[start]
-            ))
+            body = soup.body if soup.body else soup
+            for tag in body(["script", "style", "img", "figure", "svg", "canvas"]):
+                tag.decompose()
+
+            anchor_elements = {}
+            for entry in file_entries:
+                if entry["anchor"]:
+                    elem = body.find(id=entry["anchor"])
+                    if elem is not None:
+                        anchor_elements[entry["anchor"]] = elem
+
+            if not anchor_elements:
+                text = self._extract_body_text(soup)
+                if len(text) >= self.min_chars:
+                    heading = self._get_first_heading(full_href)
+                    title = heading if heading else file_entries[0]["label"]
+                    chapters.append(self._create_chapter(
+                        title=title,
+                        toc_title=file_entries[0]["label"],
+                        full_text=text,
+                        item_id=self._spine_idrefs[idx]
+                    ))
+                continue
+
+            from bs4 import NavigableString
+
+            def linearize(node, anchor_map, current_anchor=None):
+                if isinstance(node, NavigableString):
+                    text = node.strip()
+                    if text:
+                        yield (text, current_anchor)
+                    return
+                if not hasattr(node, 'name'):
+                    return
+                if node.name in ('script', 'style', 'img', 'figure', 'svg', 'canvas'):
+                    return
+
+                anchor_id = node.get('id') if node.get('id') in anchor_elements else None
+                if anchor_id is not None:
+                    current_anchor = anchor_id
+                    yield (f"__ANCHOR__{anchor_id}", current_anchor)
+                    if node.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+                        return
+                for child in node.children:
+                    yield from linearize(child, anchor_map, current_anchor)
+
+            items = list(linearize(body, anchor_elements))
+            anchor_texts = {anchor: [] for anchor in anchor_elements}
+            current_anchor = None
+            pre_text = []
+            for item in items:
+                text, anchor_id = item
+                if text.startswith("__ANCHOR__"):
+                    current_anchor = text[len("__ANCHOR__"):]
+                    continue
+                if current_anchor is None:
+                    pre_text.append(text)
+                else:
+                    anchor_texts[current_anchor].append(text)
+
+            for entry in file_entries:
+                anchor = entry["anchor"]
+                if anchor and anchor in anchor_texts:
+                    section_text = " ".join(anchor_texts[anchor]).strip()
+                elif anchor is None:
+                    section_text = " ".join(pre_text).strip() if pre_text else self._extract_body_text(soup)
+                else:
+                    continue
+
+                if len(section_text) < self.min_chars:
+                    continue
+
+                heading = self._get_first_heading(full_href)
+                title = entry["label"] if entry["label"] else heading
+                chapters.append(self._create_chapter(
+                    title=title,
+                    toc_title=entry["label"],
+                    full_text=section_text,
+                    item_id=self._spine_idrefs[idx]
+                ))
 
         for i, ch in enumerate(chapters):
             ch["index"] = i
