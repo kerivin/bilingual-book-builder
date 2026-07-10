@@ -7,8 +7,6 @@
 
 Builds a bilingual ePub from two ePubs of the same book in different languages with sentences aligned side-by-side.
 
-It uses [Bertalign](https://github.com/bfsujason/bertalign), which is proven to be one of the most accurate sentence aligners. Handles many-to-one, many-to-none and one-to-one sentences.
-
 Usage:
 
 `bbb -s original.epub -t translation.epub`
@@ -17,7 +15,15 @@ or,
 
 online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb) (blocked in some regions, use proxy/VPN) (also, quite slow)
 
-See [list of supported languages](https://github.com/bfsujason/bertalign#languges-supported)
+## Supported Languages
+
+Languages restricted to that of the libraries and models used. Basically, there are 3 modules, each supporting their own set of languages. I tried to make bbb support as many languages as possible, so it mostly depends on configurable models which usually include a lot of languages.
+
+1. Lingua language detector supports [75 languages](https://github.com/pemistahl/lingua-py#4-which-languages-are-supported) (but you can specify languages manually to skip this)
+2. Simple sentence splitter (`--simple-split`) supports [24 languages](https://github.com/mediacloud/sentence-splitter/tree/develop#languages); Wtpsplit depends on a model and currently supports [85 languages](https://arxiv.org/html/2406.16678v2#A1.T15). Simple splitter is enough for regular books in some European language.
+3. Bertalign sentence alignment depends on a model and currently supports [110 languages](https://huggingface.co/sentence-transformers/LaBSE).
+
+If both languages you want are in the [LaBSE list](https://huggingface.co/sentence-transformers/LaBSE), you are probably fine.
 
 ## Installation
 
@@ -59,18 +65,20 @@ python -m bbb --help
 
 | Command | Description
 | --- | --- |
-| `-s SOURCE`<br>`--source SOURCE` | Path to source (original) EPUB |
+| `-s SOURCE`<br>`--source SOURCE` | Path to source (original) EPUB
 | `-t TARGET`<br>`--target TARGET` | Path to target (translation) EPUB
 | `-sl LANG`<br>`--source-language LANG` | Source (original) language code.<br>Auto-detect if omitted
 | `-tl LANG`<br>`--target-language LANG` | Target (translation) language code.<br>Auto-detect if omitted
 | `-o FILENAME`<br>`--output FILENAME` | New EPUB name.<br>Default: bilingual
-| `-m`<br>`--manual` | Match chapters manually in the interactive mode.<br>Default: off if omitted
+| `-m`<br>`--manual` | Match chapters manually in the interactive mode.<br>Default: off
 | `--threads THREADS` | Number of parallel threads.<br>Default: 1
 | `--auto-threshold THRESHOLD` | Similarity threshold value (0.0-1.0) for chapter auto-matching.<br>Default: 0.6
 | `--only {auto-match,extract}` | Only show extracted chapters or auto-matched chapters without generating a new EPUB
-| `--keep-source-chapters` | Keep source (original) chapters with no matching target (translation) chapters.<br>Default: off if omitted
-| `--keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: off if omitted
-| `--model` | Name or path to sentence embedding model<br>Default: [LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
+| `--keep-source-chapters` | Keep source (original) chapters with no matching target (translation) chapters.<br>Default: off
+| `--keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: off
+| `--align-model` | Name or path to sentence embedding model.<br>Default: [LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
+| `--split-model` | Name or path to text-to-sentences splitter model.<br>Default: [sat-3l](https://huggingface.co/segment-any-text/sat-3l)
+| `--simple-split` | Use simple sentence splitter (not the `--split-model` one) which works faster but with [fewer languages](https://github.com/mediacloud/sentence-splitter/tree/develop#languages).<br>Default: off
 | `-v {silent,progress,verbose}`<br>`--verbosity {silent,progress,verbose}` | How verbose logging is.<br>Default: progress
 
 
