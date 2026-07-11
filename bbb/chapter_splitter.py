@@ -37,9 +37,23 @@ class ChapterSplitter:
         self.lock = threading.Lock()
         self.log = logging.getLogger(__name__)
 
-    def run(self, text: str, language: Language):
+    def run(self, text: str, language: Language) -> list[list[str]]:
         splitter = self._get_model(language)
-        return splitter.split(text)
+        paragraphs = []
+        for para in text.split('\n\n'):
+            para = para.strip()
+            if not para:
+                continue
+            para_sentences = []
+            for line in para.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                sentences = splitter.split(line)
+                para_sentences.extend(sentences)
+            if para_sentences:
+                paragraphs.append(para_sentences)
+        return paragraphs
 
     def _get_model(self, language: Language) -> SplitterWrapper:
         if language in self.models:

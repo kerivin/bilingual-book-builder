@@ -1,5 +1,6 @@
 import os
 import uuid
+import html
 from typing import List, Dict, Any, Optional
 from ebooklib import epub
 import ebooklib
@@ -13,6 +14,10 @@ class BookBuilder:
         self.target_path = target_path
         self.blocks = blocks
         self.log = logging.getLogger(__name__)
+
+    def _inline_text(self, text: str) -> str:
+        escaped = html.escape(text, quote=False)
+        return escaped.replace('\n', '<br/>\n')
 
     def _get_base_dir(self) -> str:
         spine = self.target_book.spine
@@ -157,14 +162,22 @@ class BookBuilder:
             f'<p>{p.replace("\n", "<br/>\n")}</p>' for p in paragraphs
         )
 
-    def _build_two_column_html(self, alignment: List[Dict[str, str]], header_row: str = "") -> str:
+    def _build_two_column_html(self, aligned_paras: List[List[Dict[str, str]]], header_row: str = "") -> str:
         rows = []
         if header_row:
             rows.append(header_row)
-        for seg in alignment:
-            source_text = self._text_to_paragraphs(seg.get('source', ''))
-            target_text = self._text_to_paragraphs(seg.get('target', ''))
-            rows.append(f'<tr><td class="bilingual-left">{source_text}</td><td class="bilingual-right">{target_text}</td></tr>')
+
+        for para in aligned_paras:
+            for i, seg in enumerate(para):
+                row_class = 'class="first-sentence"' if i == 0 else ''
+                src_html = self._inline_text(seg['source'])
+                tgt_html = self._inline_text(seg['target'])
+                rows.append(
+                    f'<tr {row_class}>'
+                    f'<td class="bilingual-left">{src_html}</td>'
+                    f'<td class="bilingual-right">{tgt_html}</td>'
+                    f'</tr>'
+                )
         return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
 
     def run(self) -> epub.EpubBook | None:
@@ -199,6 +212,9 @@ class BookBuilder:
                 vertical-align: top;
                 padding: 0.3em 1em;
                 width: 50%;
+            }
+            tr.first-sentence td {
+                text-indent: 1.5em;
             }
             .bilingual-heading {
                 font-weight: bold;

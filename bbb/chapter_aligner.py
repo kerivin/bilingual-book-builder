@@ -1,6 +1,8 @@
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+from itertools import accumulate
+from bisect import bisect_right
 
 from bbb import progress
 from bbb.chapter_splitter import ChapterSplitter
@@ -32,61 +34,59 @@ class ChapterAligner:
         self.language_detector: LanguageDetector = LanguageDetectorBuilder.from_all_languages().with_low_accuracy_mode().build()
         self.log = logging.getLogger(__name__)
 
-    def _align_pair(self, source_text: str, target_text: str) -> List[Dict[str, str]]:
+    def _align_pair(self, source_text: str, target_text: str) -> List[List[Dict[str, str]]]:
         if not source_text.strip() or not target_text.strip():
             return []
 
         src_lang = self.source_language
         tgt_lang = self.target_language
 
-        texts_to_detect_language = []
+        texts_to_detect = []
         if src_lang is None:
-            texts_to_detect_language.append(source_text)
+            texts_to_detect.append(source_text)
         if tgt_lang is None:
-            texts_to_detect_language.append(target_text)
-
-        if texts_to_detect_language:
-            languages = []
-            self.log.info(f"Detecting language...")
+            texts_to_detect.append(target_text)
+        if texts_to_detect:
+            self.log.info("Detecting language...")
             try:
-                languages = self.language_detector.detect_languages_in_parallel_of(texts_to_detect_language)
+                detected = self.language_detector.detect_languages_in_parallel_of(texts_to_detect)
             except Exception as e:
                 e.add_note("^ LanguageDetector")
-                languages = []
+                raise
+            if detected:
+                if src_lang is None:
+                    src_lang = detected[0]
+                if tgt_lang is None and len(detected) > 1:
+                    tgt_lang = detected[1]
 
-            if languages:
-                if not src_lang:
-                    src_lang = languages[0]
-                if not tgt_lang:
-                    tgt_lang = languages[1] if len(languages) > 1 else languages[0]
+        src_paras = self.splitter.run(source_text, src_lang)   # List[List[str]]
+        tgt_paras = self.splitter.run(target_text, tgt_lang)
 
-        try:
-            source_sentences = self.splitter.run(source_text, src_lang)
-            target_sentences = self.splitter.run(target_text, tgt_lang)
-        except Exception as e:
-            e.add_note("^ ChapterSplitter")
-            raise
+        src_flat = [s for para in src_paras for s in para]
+        tgt_flat = [s for para in tgt_paras for s in para]
+
+        src_bounds = [0] + list(accumulate(len(p) for p in src_paras))
 
         try:
             aligner = Bertalign(
-                model_encoder = self.align_model_encoder,
-                source_sentences = source_sentences,
-                target_sentences = target_sentences,
-                # progress_callback = progress.get_callback()
+                model_encoder=self.align_model_encoder,
+                source_sentences=src_flat,
+                target_sentences=tgt_flat,
             )
             aligner.align_sents()
-            # model.print_sents()
-            aligned = []
-            for align in aligner.result:
-                # bertalign returns a tuple: (src_indices, tgt_indices)
-                src_indices, tgt_indices = align
-                src_seg = ' '.join(aligner.src_sents[i] for i in src_indices)
-                tgt_seg = ' '.join(aligner.tgt_sents[i] for i in tgt_indices)
-                aligned.append({'source': src_seg, 'target': tgt_seg})
-            return aligned
         except Exception as e:
             e.add_note("^ Bertalign")
             raise
+
+        para_segments: Dict[int, List[Dict[str, str]]] = {}
+        for src_indices, tgt_indices in aligner.result:
+            src_seg = ' '.join(aligner.src_sents[i] for i in src_indices)
+            tgt_seg = ' '.join(aligner.tgt_sents[i] for i in tgt_indices)
+            para_idx = bisect_right(src_bounds, src_indices[0]) - 1
+            para_segments.setdefault(para_idx, []).append({'source': src_seg, 'target': tgt_seg})
+
+        aligned_paras = [para_segments[i] for i in sorted(para_segments)]
+        return aligned_paras
 
     def run(self) -> List[Dict[str, Any]]:
         """
