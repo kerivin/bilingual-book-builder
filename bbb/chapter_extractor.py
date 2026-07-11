@@ -3,11 +3,14 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
-from bs4 import BeautifulSoup
-from bs4.element import NavigableString, Comment
+from bs4 import BeautifulSoup, NavigableString, Comment
 from epub_utils import Document
 
 from bbb import progress, utils
+
+BLOCK_TAGS = {'p', 'div', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+SKIP_CLASSES = {'cn', 'chapnum', 'chapter-number'}
+TAG_BLACKLIST = {'script', 'style', 'img', 'figure', 'svg', 'canvas'}
 
 
 class ChapterExtractor:
@@ -60,15 +63,10 @@ class ChapterExtractor:
             if itemref.get('linear') == 'no':
                 continue
             idref = itemref['idref']
-            href = None
-            for item in manifest_items:
-                if item['id'] == idref:
-                    href = item['href']
-                    break
+            href = next((item['href'] for item in manifest_items if item['id'] == idref), None)
             if href is None:
                 continue
-            full_href = self._make_full_path(href)
-            self._spine_full_hrefs.append(full_href)
+            self._spine_full_hrefs.append(self._make_full_path(href))
             self._spine_idrefs.append(idref)
 
     def _make_full_path(self, href: str) -> str:
@@ -130,12 +128,7 @@ class ChapterExtractor:
             candidates.append(self._make_full_path(f"{prefix}{Path(base).name}"))
 
         seen = set()
-        unique_candidates = []
-        for c in candidates:
-            if c not in seen:
-                seen.add(c)
-                unique_candidates.append(c)
-
+        unique_candidates = [c for c in candidates if not (c in seen or seen.add(c))]
         for cand in unique_candidates:
             try:
                 return self._spine_full_hrefs.index(cand)
@@ -150,38 +143,41 @@ class ChapterExtractor:
         except (ValueError, AttributeError, KeyError):
             return None
 
-    def _extract_body_text(self, soup: BeautifulSoup) -> str:
-        for tag in soup(["script", "style", "img", "figure", "svg", "canvas"]):
+    def _clean_soup(self, soup: BeautifulSoup) -> None:
+        """Remove unwanted elements in-place."""
+        for tag in soup(TAG_BLACKLIST):
             tag.decompose()
-        root = soup.body if soup.body else soup
 
-        block_tags = {'p', 'div', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
-        skip_classes = {'cn', 'chapnum', 'chapter-number'}
+        for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
+            comment.extract()
+
+        for tag in soup.find_all(class_=lambda c: c and set(c.split()) & SKIP_CLASSES):
+            tag.decompose()
+
+        for br in soup.find_all("br"):
+            br.replace_with("\n")
+
+    def _clean_heading(self, raw: str) -> str:
+        """Remove common chapter numbering artefacts from a heading."""
+        cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
+        return cleaned or raw
+
+    def _extract_body_text(self, soup: BeautifulSoup) -> str:
+        self._clean_soup(soup)
+        root = soup.body if soup.body else soup
 
         parts = []
 
         def walk(node):
             if isinstance(node, NavigableString):
-                if isinstance(node, Comment):
-                    return
-                text = str(node)
-                if text:
-                    parts.append(text)
+                parts.append(str(node))
                 return
             if not hasattr(node, 'name'):
                 return
-            if node.name in ('script', 'style', 'img', 'figure', 'svg', 'canvas'):
-                return
-
-            if node.name in block_tags:
-                cls = node.get('class', [])
-                if isinstance(cls, list) and skip_classes.intersection(cls):
-                    return
-
             if node.name == 'br':
                 parts.append('\n')
                 return
-            if node.name in block_tags:
+            if node.name in BLOCK_TAGS:
                 parts.append('\n\n')
             for child in node.children:
                 walk(child)
@@ -189,9 +185,9 @@ class ChapterExtractor:
         walk(root)
         raw_text = ''.join(parts)
 
-        cleaned = re.sub(r'[^\S\n]+', ' ', raw_text)
-        cleaned = re.sub(r' *\n *', '\n', cleaned)
-        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        cleaned = re.sub(r'[^\S\n]+', ' ', raw_text)       # spaces/tabs -> space
+        cleaned = re.sub(r' *\n *', '\n', cleaned)         # strip space around newlines
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)       # max double newline
         return cleaned.strip()
 
     def _get_first_heading(self, full_href: str) -> Optional[str]:
@@ -202,35 +198,29 @@ class ChapterExtractor:
         if not h_tag:
             return None
         raw = h_tag.get_text(separator='\n').strip()
-        cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
-        return cleaned or raw
+        return self._clean_heading(raw)
 
     def _linearize_body(self, node, anchor_elements, current_anchor=None):
         if isinstance(node, NavigableString):
-            if isinstance(node, Comment):
-                return
             text = node.strip()
             if text:
                 yield (text, current_anchor)
             return
         if not hasattr(node, 'name'):
             return
-        if node.name in ('script', 'style', 'img', 'figure', 'svg', 'canvas'):
-            return
 
         if node.name == 'br':
             yield ("\n", current_anchor)
             return
 
-        if node.name in ('p', 'div', 'li', 'blockquote',
-                        'h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+        if node.name in BLOCK_TAGS:
             yield ("\n\n", current_anchor)
 
         anchor_id = node.get('id') if node.get('id') in anchor_elements else None
         if anchor_id is not None:
             current_anchor = anchor_id
             yield (f"__ANCHOR__{anchor_id}", current_anchor)
-            if node.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+            if node.name in {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}:
                 return
         for child in node.children:
             yield from self._linearize_body(child, anchor_elements, current_anchor)
@@ -258,12 +248,11 @@ class ChapterExtractor:
             idx = self._resolve_toc_target_to_spine_index(item.target)
             if idx is None or idx in skip_spine:
                 continue
-            target_key = (idx, item.target.split('#', 1)[1] if '#' in item.target else None)
+            anchor = item.target.split('#', 1)[1] if '#' in item.target else None
+            target_key = (idx, anchor)
             if target_key in seen_targets:
                 continue
             seen_targets.add(target_key)
-
-            anchor = target_key[1]
             entries.append({
                 "label": item.label,
                 "spine_index": idx,
@@ -276,10 +265,11 @@ class ChapterExtractor:
         grouped = {}
         order = []
         for e in entries:
-            if e["spine_index"] not in grouped:
-                grouped[e["spine_index"]] = []
-                order.append(e["spine_index"])
-            grouped[e["spine_index"]].append(e)
+            idx = e["spine_index"]
+            if idx not in grouped:
+                grouped[idx] = []
+                order.append(idx)
+            grouped[idx].append(e)
 
         chapters = []
         for idx in order:
@@ -288,6 +278,8 @@ class ChapterExtractor:
             soup = self._load_soup(full_href)
             if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
+
+            self._clean_soup(soup)
 
             if len(file_entries) == 1 and file_entries[0]["anchor"] is None:
                 text = self._extract_body_text(soup)
@@ -303,8 +295,6 @@ class ChapterExtractor:
                 continue
 
             body = soup.body if soup.body else soup
-            for tag in body(["script", "style", "img", "figure", "svg", "canvas"]):
-                tag.decompose()
 
             anchor_elements = {}
             for entry in file_entries:
@@ -369,21 +359,20 @@ class ChapterExtractor:
             soup = self._load_soup(full_href)
             if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
-            for tag in soup(["script", "style", "img", "figure", "svg", "canvas"]):
-                tag.decompose()
-            for br in soup.find_all("br"):
-                br.replace_with("\n")
-            for tag in soup.find_all(['p', 'div', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+
+            self._clean_soup(soup)
+
+            for tag in soup.find_all(list(BLOCK_TAGS)):
                 tag.insert_after('\n')
+
             for h_tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
                 raw = h_tag.get_text(separator='\n').strip()
-                cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
-                title = cleaned or raw
+                title = self._clean_heading(raw)
                 heading_positions.append((title, len(all_text)))
 
-            text = soup.get_text('', strip=False)
+            text = soup.get_text('', strip=False).strip()
             if text:
-                all_text += text.strip() + " "
+                all_text += text + " "
 
         if not heading_positions:
             return []
