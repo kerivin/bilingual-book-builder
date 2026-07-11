@@ -21,7 +21,7 @@ Languages restricted to that of the libraries and models used. Basically, there 
 
 1. Lingua language detector supports [75 languages](https://github.com/pemistahl/lingua-py#4-which-languages-are-supported) (but you can specify languages manually to skip this)
 2. Simple sentence splitter (`--simple-split`) supports [24 languages](https://github.com/mediacloud/sentence-splitter/tree/develop#languages); Wtpsplit depends on a model and currently supports [85 languages](https://arxiv.org/html/2406.16678v2#A1.T15). Simple splitter is enough for regular books in some European language.
-3. Bertalign sentence alignment depends on a model and currently supports [110 languages](https://huggingface.co/sentence-transformers/LaBSE).
+3. Bertalign sentence alignment depends on a model and currently supports [109 languages](https://huggingface.co/sentence-transformers/LaBSE).
 
 If both languages you want are in the [LaBSE list](https://huggingface.co/sentence-transformers/LaBSE), you are probably fine.
 
