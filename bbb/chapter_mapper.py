@@ -39,11 +39,11 @@ class ChapterMapper:
         target_lines = []
         for i in range(max_len):
             if i < self.source_count:
-                source_lines.append(f"[{self.source[i]['index']}] {self.source[i]['title']}")
+                source_lines.append(f"[{self.source[i]['index']}] {self.source[i]['toc_title']}")
             else:
                 source_lines.append("")
             if i < self.target_count:
-                target_lines.append(f"[{self.target[i]['index']}] {self.target[i]['title']}")
+                target_lines.append(f"[{self.target[i]['index']}] {self.target[i]['toc_title']}")
             else:
                 target_lines.append("")
         col_width = max((len(s) for s in source_lines), default=30) + 4

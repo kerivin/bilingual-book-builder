@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
 from bs4 import BeautifulSoup
+from bs4.element import NavigableString
 from epub_utils import Document
 
 from bbb import progress, utils
@@ -26,9 +27,6 @@ class ChapterExtractor:
         self._build_spine_info()
 
     def get_chapter_list(self) -> List[Dict[str, Any]]:
-        """Return a list of chapter dictionaries with keys:
-        title, toc_title, full_text, word_count, preview, item_id, index.
-        """
         chapters = self._extract_from_toc()
         if chapters and len(chapters) >= 2:
             return chapters
@@ -57,9 +55,10 @@ class ChapterExtractor:
         }
 
     def _build_spine_info(self) -> None:
-        """Fill self._spine_full_hrefs and self._spine_idrefs using the OPF manifest."""
         manifest_items = self.doc.package.manifest.items
         for itemref in self.doc.package.spine.itemrefs:
+            if itemref.get('linear') == 'no':
+                continue
             idref = itemref['idref']
             href = None
             for item in manifest_items:
@@ -73,10 +72,51 @@ class ChapterExtractor:
             self._spine_idrefs.append(idref)
 
     def _make_full_path(self, href: str) -> str:
-        """Convert a manifest href (relative to OPF) to an absolute ZIP path."""
         if href.startswith('/'):
             return href.lstrip('/')
         return f"{self._opf_base}{href}"
+
+    def _find_guide_skip_indices(self) -> set:
+        skip_types = {
+            'cover', 'title-page', 'toc', 'copyright-page',
+            'frontmatter', 'backmatter', 'acknowledgements',
+            'other.frontmatter', 'other.backmatter'
+        }
+        skip_indices = set()
+        for ref in getattr(self.doc.package, 'guide', []) or []:
+            if ref.get('type', '').lower() in skip_types:
+                idx = self._resolve_toc_target_to_spine_index(ref['href'])
+                if idx is not None:
+                    skip_indices.add(idx)
+        return skip_indices
+
+    def _is_skippable_frontbackmatter(self, soup: BeautifulSoup) -> bool:
+        keep_types = {
+            'dedication', 'foreword', 'preface', 'introduction', 'prologue',
+            'epigraph', 'acknowledgments', 'afterword', 'conclusion',
+            'part', 'chapter', 'subtitle'
+        }
+        if not soup.body:
+            return False
+
+        for tag in soup.body.descendants:
+            if not hasattr(tag, 'get'):
+                continue
+            etype = tag.get('epub:type', '')
+            if not isinstance(etype, str):
+                continue
+            if any(t in etype.split() for t in keep_types):
+                return False
+
+        body_etype = soup.body.get('epub:type', '')
+        if isinstance(body_etype, str) and ('frontmatter' in body_etype or 'backmatter' in body_etype):
+            return True
+
+        for child in soup.body.find_all(True, recursive=False):
+            etype = child.get('epub:type', '')
+            if isinstance(etype, str) and ('frontmatter' in etype or 'backmatter' in etype):
+                return True
+        return False
 
     def _resolve_toc_target_to_spine_index(self, target: str) -> Optional[int]:
         base = target.split('#')[0]
@@ -115,8 +155,16 @@ class ChapterExtractor:
             tag.decompose()
         parts = []
         root = soup.body if soup.body else soup
+        allowed = ("p", "li", "blockquote", "div")
         for elem in root.descendants:
-            if elem.name in ("p", "li", "blockquote", "div"):
+            if not hasattr(elem, 'name') or elem.name not in allowed:
+                continue
+            ancestor = elem.parent
+            while ancestor and ancestor is not root:
+                if ancestor.name in allowed:
+                    break
+                ancestor = ancestor.parent
+            else:
                 text = elem.get_text(" ", strip=True)
                 if text:
                     parts.append(text)
@@ -133,6 +181,26 @@ class ChapterExtractor:
         cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
         return cleaned or raw
 
+    def _linearize_body(self, node, anchor_elements, current_anchor=None):
+        if isinstance(node, NavigableString):
+            text = node.strip()
+            if text:
+                yield (text, current_anchor)
+            return
+        if not hasattr(node, 'name'):
+            return
+        if node.name in ('script', 'style', 'img', 'figure', 'svg', 'canvas'):
+            return
+
+        anchor_id = node.get('id') if node.get('id') in anchor_elements else None
+        if anchor_id is not None:
+            current_anchor = anchor_id
+            yield (f"__ANCHOR__{anchor_id}", current_anchor)
+            if node.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+                return
+        for child in node.children:
+            yield from self._linearize_body(child, anchor_elements, current_anchor)
+
     def _extract_from_toc(self) -> List[Dict[str, Any]]:
         toc = self.doc.toc
         if not toc:
@@ -148,17 +216,26 @@ class ChapterExtractor:
         if not all_items:
             return []
 
+        skip_spine = self._find_guide_skip_indices()
+
         entries = []
+        seen_targets = set()
         for item in all_items:
             idx = self._resolve_toc_target_to_spine_index(item.target)
-            if idx is not None:
-                anchor = item.target.split('#', 1)[1] if '#' in item.target else None
-                entries.append({
-                    "label": item.label,
-                    "spine_index": idx,
-                    "anchor": anchor,
-                    "full_href": self._spine_full_hrefs[idx],
-                })
+            if idx is None or idx in skip_spine:
+                continue
+            target_key = (idx, item.target.split('#', 1)[1] if '#' in item.target else None)
+            if target_key in seen_targets:
+                continue
+            seen_targets.add(target_key)
+
+            anchor = target_key[1]
+            entries.append({
+                "label": item.label,
+                "spine_index": idx,
+                "anchor": anchor,
+                "full_href": self._spine_full_hrefs[idx],
+            })
         if not entries:
             return []
 
@@ -175,7 +252,7 @@ class ChapterExtractor:
             file_entries = grouped[idx]
             full_href = self._spine_full_hrefs[idx]
             soup = self._load_soup(full_href)
-            if not soup:
+            if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
 
             if len(file_entries) == 1 and file_entries[0]["anchor"] is None:
@@ -203,66 +280,36 @@ class ChapterExtractor:
                         anchor_elements[entry["anchor"]] = elem
 
             if not anchor_elements:
+                entry = file_entries[0]
                 text = self._extract_body_text(soup)
                 if len(text) >= self.min_chars:
                     heading = self._get_first_heading(full_href)
-                    title = heading if heading else file_entries[0]["label"]
+                    title = heading if heading else entry["label"]
                     chapters.append(self._create_chapter(
                         title=title,
-                        toc_title=file_entries[0]["label"],
+                        toc_title=entry["label"],
                         full_text=text,
                         item_id=self._spine_idrefs[idx]
                     ))
                 continue
 
-            from bs4 import NavigableString
-
-            def linearize(node, anchor_map, current_anchor=None):
-                if isinstance(node, NavigableString):
-                    text = node.strip()
-                    if text:
-                        yield (text, current_anchor)
-                    return
-                if not hasattr(node, 'name'):
-                    return
-                if node.name in ('script', 'style', 'img', 'figure', 'svg', 'canvas'):
-                    return
-
-                anchor_id = node.get('id') if node.get('id') in anchor_elements else None
-                if anchor_id is not None:
-                    current_anchor = anchor_id
-                    yield (f"__ANCHOR__{anchor_id}", current_anchor)
-                    if node.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
-                        return
-                for child in node.children:
-                    yield from linearize(child, anchor_map, current_anchor)
-
-            items = list(linearize(body, anchor_elements))
+            items = list(self._linearize_body(body, anchor_elements))
             anchor_texts = {anchor: [] for anchor in anchor_elements}
             current_anchor = None
-            pre_text = []
-            for item in items:
-                text, anchor_id = item
+            for text, anchor_id in items:
                 if text.startswith("__ANCHOR__"):
                     current_anchor = text[len("__ANCHOR__"):]
                     continue
-                if current_anchor is None:
-                    pre_text.append(text)
-                else:
+                if current_anchor is not None:
                     anchor_texts[current_anchor].append(text)
 
             for entry in file_entries:
                 anchor = entry["anchor"]
-                if anchor and anchor in anchor_texts:
-                    section_text = " ".join(anchor_texts[anchor]).strip()
-                elif anchor is None:
-                    section_text = " ".join(pre_text).strip() if pre_text else self._extract_body_text(soup)
-                else:
+                if not anchor or anchor not in anchor_texts:
                     continue
-
+                section_text = " ".join(anchor_texts[anchor]).strip()
                 if len(section_text) < self.min_chars:
                     continue
-
                 heading = self._get_first_heading(full_href)
                 title = entry["label"] if entry["label"] else heading
                 chapters.append(self._create_chapter(
@@ -274,7 +321,6 @@ class ChapterExtractor:
 
         for i, ch in enumerate(chapters):
             ch["index"] = i
-
         self._show_chapters(chapters)
         return chapters
 
@@ -282,9 +328,12 @@ class ChapterExtractor:
         heading_positions = []
         all_text = ""
 
-        for full_href in self._spine_full_hrefs:
+        skip_spine = self._find_guide_skip_indices()
+        for i, full_href in enumerate(self._spine_full_hrefs):
+            if i in skip_spine:
+                continue
             soup = self._load_soup(full_href)
-            if not soup:
+            if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
             for tag in soup(["script", "style", "img", "figure", "svg", "canvas"]):
                 tag.decompose()
@@ -310,6 +359,5 @@ class ChapterExtractor:
 
         for i, ch in enumerate(chapters):
             ch["index"] = i
-
         self._show_chapters(chapters)
         return chapters
