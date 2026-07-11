@@ -171,58 +171,66 @@ class ChapterMapper:
                 action = 's'
             else:
                 try:
-                    raw = input("[ENTER] Match / [S] Skip Source Chapter / [T] Skip Target Chapter / [B] Back / [Q] Quit: ").strip().lower()
+                    raw = input(
+                        "[ENTER] Match / [S] Skip Source / [T] Skip Target / "
+                        "[B] Back / [F] Skip rest and finish / [Q] Quit: "
+                    ).strip().lower()
                 except (EOFError, KeyboardInterrupt):
                     return False
                 action = raw
 
-            if action == 'q':
-                return False
-
-            if action == 'b':
-                if history:
-                    last_source_index, last_target_index, last_action, last_pair = history.pop()
-                    if last_action == 'match':
-                        self.chapter_pairs.remove(last_pair)
-                    elif last_action == 'skip_source':
-                        self.unmatched_source_chapters.pop()
-                    elif last_action == 'skip_target':
-                        self.unmatched_target_chapters.pop()
-                    source_index, target_index = last_source_index, last_target_index
+            match action:
+                case 'q':
+                    return False
+                case 'b':
+                    if history:
+                        last_source_index, last_target_index, last_action, last_pair = history.pop()
+                        if last_action == 'match':
+                            self.chapter_pairs.remove(last_pair)
+                        elif last_action == 'skip_source':
+                            self.unmatched_source_chapters.pop()
+                        elif last_action == 'skip_target':
+                            self.unmatched_target_chapters.pop()
+                        source_index, target_index = last_source_index, last_target_index
+                        continue
+                    else:
+                        print("Nothing to undo.")
+                        continue
+                case '':
+                    if source_index < self.source_count and target_index < self.target_count:
+                        pair = (source_index, target_index)
+                        self.chapter_pairs.append(pair)
+                        history.append((source_index, target_index, 'match', pair))
+                        source_index += 1
+                        target_index += 1
+                    else:
+                        print("Cannot match – one side empty. Use skip instead.")
+                        continue
+                case 's':
+                    if source_index < self.source_count:
+                        self.unmatched_source_chapters.append(source_index)
+                        history.append((source_index, target_index, 'skip_source', None))
+                        source_index += 1
+                    else:
+                        print("No more source chapters to skip.")
+                        continue
+                case 't':
+                    if target_index < self.target_count:
+                        self.unmatched_target_chapters.append(target_index)
+                        history.append((source_index, target_index, 'skip_target', None))
+                        target_index += 1
+                    else:
+                        print("No more target chapters to skip.")
+                        continue
+                case 'f':
+                    for i in range(source_index, self.source_count):
+                        self.unmatched_source_chapters.append(i)
+                    for i in range(target_index, self.target_count):
+                        self.unmatched_target_chapters.append(i)
+                    break
+                case _:
+                    print("Invalid command. Try again.")
                     continue
-                else:
-                    print("Nothing to undo.")
-                    continue
-
-            if action == '':
-                if source_index < self.source_count and target_index < self.target_count:
-                    pair = (source_index, target_index)
-                    self.chapter_pairs.append(pair)
-                    history.append((source_index, target_index, 'match', pair))
-                    source_index += 1
-                    target_index += 1
-                else:
-                    print("Cannot match – one side empty. Use skip instead.")
-                    continue
-            elif action == 's':
-                if source_index < self.source_count:
-                    self.unmatched_source_chapters.append(source_index)
-                    history.append((source_index, target_index, 'skip_source', None))
-                    source_index += 1
-                else:
-                    print("No more source chapters to skip.")
-                    continue
-            elif action == 't':
-                if target_index < self.target_count:
-                    self.unmatched_target_chapters.append(target_index)
-                    history.append((source_index, target_index, 'skip_target', None))
-                    target_index += 1
-                else:
-                    print("No more target chapters to skip.")
-                    continue
-            else:
-                print("Invalid command. Try again.")
-                continue
 
         self._show_chapter_mapping()
         return True
