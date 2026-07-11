@@ -60,7 +60,8 @@ def main() -> int:
         args.keep_source_chapters,
         args.keep_target_chapters,
         args.align_model,
-        args.split_model if not args.simple_split else None,
+        args.split_model,
+        args.simple_split,
         args.verbosity,
         progress_callback,
     ).run()

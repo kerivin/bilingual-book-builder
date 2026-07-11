@@ -21,6 +21,7 @@ class BBB:
                 keep_unmatched_target_chapters = False,
                 align_model = 'LaBSE',
                 split_model = 'sat-3l',
+                simple_split: bool = False,
                 verbosity: str = 'progress',
                 progress_callback = None,
             ):
@@ -37,6 +38,7 @@ class BBB:
         self.keep_unmatched_target_chapters = keep_unmatched_target_chapters
         self.align_model = align_model
         self.split_model = split_model
+        self.simple_split = simple_split
 
         progress.init(verbosity, progress_callback)
         self.log = logging.getLogger(__name__)
@@ -100,7 +102,7 @@ class BBB:
             self.target_language,
             self.threads,
             sentence_transformer,
-            self.split_model,
+            self.split_model if not self.simple_split else None,
         ).run()
 
         if not aligned_chapters:
