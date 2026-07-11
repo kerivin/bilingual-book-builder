@@ -78,7 +78,7 @@ python -m bbb --help
 | `--keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: off
 | `--align-model` | Name or path to sentence embedding model.<br>Default: [LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
 | `--split-model` | Name or path to text-to-sentences splitter model.<br>Default: [sat-3l](https://huggingface.co/segment-any-text/sat-3l)
-| `--simple-split` | Use simple sentence splitter (not the `--split-model` one) which works faster but with [fewer languages](https://github.com/mediacloud/sentence-splitter/tree/develop#languages).<br>Default: on
+| `--simple-split` | Use simple sentence splitter (not the `--split-model` one) which works faster but with [fewer languages](https://github.com/mediacloud/sentence-splitter/tree/develop#languages).<br>Default: off
 | `-v {silent,progress,verbose}`<br>`--verbosity {silent,progress,verbose}` | How verbose logging is.<br>Default: progress
 
 
@@ -88,7 +88,7 @@ Typical usage:
 
 `bbb -s original.epub -t translation.epub`
 
-`bbb -s original.epub -t translation.epub -sl en -tl ru --auto-threshold 0.6 --threads 4 --keep-target-chapters`
+`bbb -s original.epub -t translation.epub -sl en -tl ru --simple-split --auto-threshold 0.6 --threads 4 --keep-target-chapters`
 
 
 ## Disclaimer
