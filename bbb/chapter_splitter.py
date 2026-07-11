@@ -37,7 +37,7 @@ class ChapterSplitter:
         self.lock = threading.Lock()
         self.log = logging.getLogger(__name__)
 
-    def run(self, text: str, language: Language) -> list[list[str]]:
+    def run(self, text: str, language: Language):
         splitter = self._get_model(language)
         return splitter.split(text)
 
