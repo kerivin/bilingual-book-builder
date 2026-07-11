@@ -152,8 +152,10 @@ class BookBuilder:
     def _text_to_paragraphs(self, text: str) -> str:
         if not text:
             return ""
-        paragraphs = text.split('\n\n')
-        return '\n'.join(f'<p>{" ".join(p.split())}</p>' for p in paragraphs if p.strip())
+        paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+        return '\n'.join(
+            f'<p>{p.replace("\n", "<br/>\n")}</p>' for p in paragraphs
+        )
 
     def _build_two_column_html(self, alignment: List[Dict[str, str]], header_row: str = "") -> str:
         rows = []

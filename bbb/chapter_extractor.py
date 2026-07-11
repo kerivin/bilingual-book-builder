@@ -8,7 +8,8 @@ from epub_utils import Document
 
 from bbb import progress, utils
 
-BLOCK_TAGS = {'p', 'div', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+BLOCK_TAGS = {'p', 'div', 'li', 'blockquote', *HEADING_TAGS}
 SKIP_CLASSES = {'cn', 'chapnum', 'chapter-number'}
 TAG_BLACKLIST = {'script', 'style', 'img', 'figure', 'svg', 'canvas'}
 
@@ -58,16 +59,15 @@ class ChapterExtractor:
         }
 
     def _build_spine_info(self) -> None:
-        manifest_items = self.doc.package.manifest.items
+        manifest_items = {item['id']: item['href'] for item in self.doc.package.manifest.items}
         for itemref in self.doc.package.spine.itemrefs:
             if itemref.get('linear') == 'no':
                 continue
-            idref = itemref['idref']
-            href = next((item['href'] for item in manifest_items if item['id'] == idref), None)
+            href = manifest_items.get(itemref['idref'])
             if href is None:
                 continue
             self._spine_full_hrefs.append(self._make_full_path(href))
-            self._spine_idrefs.append(idref)
+            self._spine_idrefs.append(itemref['idref'])
 
     def _make_full_path(self, href: str) -> str:
         if href.startswith('/'):
@@ -154,76 +154,92 @@ class ChapterExtractor:
         for tag in soup.find_all(class_=lambda c: c and set(c.split()) & SKIP_CLASSES):
             tag.decompose()
 
-        for br in soup.find_all("br"):
-            br.replace_with("\n")
+        # for br in soup.find_all("br"):
+        #     br.replace_with("\n")
 
     def _clean_heading(self, raw: str) -> str:
         """Remove common chapter numbering artefacts from a heading."""
         cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
         return cleaned or raw
 
-    def _extract_body_text(self, soup: BeautifulSoup) -> str:
+    def _extract_text(self, soup: BeautifulSoup, anchor_elements: Optional[Dict[str, Any]] = None):
         self._clean_soup(soup)
+
+        BR_PLACEHOLDER = '__BR__'
+        PARA_PLACEHOLDER = '__PARA__'
+
+        for br in soup.find_all('br'):
+            br.replace_with(BR_PLACEHOLDER)
+
         root = soup.body if soup.body else soup
 
-        parts = []
+        if anchor_elements:
+            anchor_texts = {aid: [] for aid in anchor_elements}
+            current_anchor = None
 
-        def walk(node):
-            if isinstance(node, NavigableString):
-                parts.append(str(node))
-                return
-            if not hasattr(node, 'name'):
-                return
-            if node.name == 'br':
-                parts.append('\n')
-                return
-            if node.name in BLOCK_TAGS:
-                parts.append('\n\n')
-            for child in node.children:
-                walk(child)
+            def walk(node):
+                nonlocal current_anchor
+                if isinstance(node, NavigableString):
+                    text = str(node)
+                    if current_anchor is not None:
+                        anchor_texts[current_anchor].append(text)
+                    return
+                if not hasattr(node, 'name'):
+                    return
+                anchor_id = node.get('id') if node.get('id') in anchor_elements else None
+                if anchor_id is not None:
+                    current_anchor = anchor_id
+                    if node.name in HEADING_TAGS:
+                        return
+                if node.name in BLOCK_TAGS:
+                    if current_anchor is not None:
+                        anchor_texts[current_anchor].append(PARA_PLACEHOLDER)
+                for child in node.children:
+                    walk(child)
 
-        walk(root)
-        raw_text = ''.join(parts)
+            walk(root)
 
-        cleaned = re.sub(r'[^\S\n]+', ' ', raw_text)       # spaces/tabs -> space
-        cleaned = re.sub(r' *\n *', '\n', cleaned)         # strip space around newlines
-        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)       # max double newline
-        return cleaned.strip()
+            result = {}
+            for aid, pieces in anchor_texts.items():
+                raw = ''.join(pieces)
+                text = raw.replace(BR_PLACEHOLDER, '\n').replace(PARA_PLACEHOLDER, '\n\n')
+                text = re.sub(r'[^\S\n]+', ' ', text)
+                text = re.sub(r' *\n *', '\n', text)
+                text = re.sub(r'\n{3,}', '\n\n', text)
+                result[aid] = text.strip()
+            
+            return result
+
+        else:
+            parts = []
+            def walk(node):
+                if isinstance(node, NavigableString):
+                    parts.append(str(node))
+                    return
+                if not hasattr(node, 'name'):
+                    return
+                if node.name in BLOCK_TAGS:
+                    parts.append(PARA_PLACEHOLDER)
+                for child in node.children:
+                    walk(child)
+
+            walk(root)
+            raw = ''.join(parts)
+            raw = raw.replace(BR_PLACEHOLDER, '\n').replace(PARA_PLACEHOLDER, '\n\n')
+            text = re.sub(r'[^\S\n]+', ' ', raw)
+            text = re.sub(r' *\n *', '\n', text)
+            text = re.sub(r'\n{3,}', '\n\n', text)
+            return text.strip()
 
     def _get_first_heading(self, full_href: str) -> Optional[str]:
         soup = self._load_soup(full_href)
         if not soup:
             return None
-        h_tag = soup.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+        h_tag = soup.find(HEADING_TAGS)
         if not h_tag:
             return None
         raw = h_tag.get_text(separator='\n').strip()
         return self._clean_heading(raw)
-
-    def _linearize_body(self, node, anchor_elements, current_anchor=None):
-        if isinstance(node, NavigableString):
-            text = node.strip()
-            if text:
-                yield (text, current_anchor)
-            return
-        if not hasattr(node, 'name'):
-            return
-
-        if node.name == 'br':
-            yield ("\n", current_anchor)
-            return
-
-        if node.name in BLOCK_TAGS:
-            yield ("\n\n", current_anchor)
-
-        anchor_id = node.get('id') if node.get('id') in anchor_elements else None
-        if anchor_id is not None:
-            current_anchor = anchor_id
-            yield (f"__ANCHOR__{anchor_id}", current_anchor)
-            if node.name in {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}:
-                return
-        for child in node.children:
-            yield from self._linearize_body(child, anchor_elements, current_anchor)
 
     def _extract_from_toc(self) -> List[Dict[str, Any]]:
         toc = self.doc.toc
@@ -279,10 +295,8 @@ class ChapterExtractor:
             if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
 
-            self._clean_soup(soup)
-
             if len(file_entries) == 1 and file_entries[0]["anchor"] is None:
-                text = self._extract_body_text(soup)
+                text = self._extract_text(soup)
                 if len(text) >= self.min_chars:
                     heading = self._get_first_heading(full_href)
                     title = heading if heading else file_entries[0]["label"]
@@ -305,7 +319,7 @@ class ChapterExtractor:
 
             if not anchor_elements:
                 entry = file_entries[0]
-                text = self._extract_body_text(soup)
+                text = self._extract_text(soup)
                 if len(text) >= self.min_chars:
                     heading = self._get_first_heading(full_href)
                     title = heading if heading else entry["label"]
@@ -317,21 +331,12 @@ class ChapterExtractor:
                     ))
                 continue
 
-            items = list(self._linearize_body(body, anchor_elements))
-            anchor_texts = {anchor: [] for anchor in anchor_elements}
-            current_anchor = None
-            for text, anchor_id in items:
-                if text.startswith("__ANCHOR__"):
-                    current_anchor = text[len("__ANCHOR__"):]
-                    continue
-                if current_anchor is not None:
-                    anchor_texts[current_anchor].append(text)
-
+            anchor_texts = self._extract_text(soup, anchor_elements)
             for entry in file_entries:
                 anchor = entry["anchor"]
                 if not anchor or anchor not in anchor_texts:
                     continue
-                section_text = "".join(anchor_texts[anchor]).strip()
+                section_text = anchor_texts[anchor]
                 if len(section_text) < self.min_chars:
                     continue
                 heading = self._get_first_heading(full_href)
@@ -349,7 +354,7 @@ class ChapterExtractor:
         return chapters
 
     def _extract_via_headers(self) -> List[Dict[str, Any]]:
-        heading_positions = []
+        heading_positions = []   # (title, start_index)
         all_text = ""
 
         skip_spine = self._find_guide_skip_indices()
@@ -362,17 +367,29 @@ class ChapterExtractor:
 
             self._clean_soup(soup)
 
-            for tag in soup.find_all(list(BLOCK_TAGS)):
-                tag.insert_after('\n')
-
-            for h_tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+            headings_in_this_file = []
+            for h_tag in soup.find_all(HEADING_TAGS):
                 raw = h_tag.get_text(separator='\n').strip()
                 title = self._clean_heading(raw)
-                heading_positions.append((title, len(all_text)))
+                headings_in_this_file.append(title)
 
-            text = soup.get_text('', strip=False).strip()
-            if text:
-                all_text += text + " "
+            file_text = self._extract_text(soup)
+            if not file_text:
+                continue
+
+            search_from = 0
+            for title in headings_in_this_file:
+                escaped = re.escape(title)
+                pattern = re.compile(r'\n*' + escaped + r'\s*\n*')
+                match = pattern.search(file_text, search_from)
+                if match:
+                    body_start = match.end()
+                    heading_positions.append((title, len(all_text) + body_start))
+                    search_from = body_start
+                else:
+                    heading_positions.append((title, len(all_text)))
+
+            all_text += file_text + " "
 
         if not heading_positions:
             return []
