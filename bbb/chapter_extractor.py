@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
 from bs4 import BeautifulSoup
-from bs4.element import NavigableString
+from bs4.element import NavigableString, Comment
 from epub_utils import Document
 
 from bbb import progress, utils
@@ -153,24 +153,46 @@ class ChapterExtractor:
     def _extract_body_text(self, soup: BeautifulSoup) -> str:
         for tag in soup(["script", "style", "img", "figure", "svg", "canvas"]):
             tag.decompose()
-        parts = []
         root = soup.body if soup.body else soup
-        allowed = ("p", "li", "blockquote", "div")
-        for elem in root.descendants:
-            if not hasattr(elem, 'name') or elem.name not in allowed:
-                continue
-            ancestor = elem.parent
-            while ancestor and ancestor is not root:
-                if ancestor.name in allowed:
-                    break
-                ancestor = ancestor.parent
-            else:
-                for br in elem.find_all("br"):
-                    br.replace_with("\n")
-                text = elem.get_text('', strip=False)
+
+        block_tags = {'p', 'div', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+        skip_classes = {'cn', 'chapnum', 'chapter-number'}
+
+        parts = []
+
+        def walk(node):
+            if isinstance(node, NavigableString):
+                if isinstance(node, Comment):
+                    return
+                text = str(node)
                 if text:
                     parts.append(text)
-        return "\n\n".join(parts)
+                return
+            if not hasattr(node, 'name'):
+                return
+            if node.name in ('script', 'style', 'img', 'figure', 'svg', 'canvas'):
+                return
+
+            if node.name in block_tags:
+                cls = node.get('class', [])
+                if isinstance(cls, list) and skip_classes.intersection(cls):
+                    return
+
+            if node.name == 'br':
+                parts.append('\n')
+                return
+            if node.name in block_tags:
+                parts.append('\n\n')
+            for child in node.children:
+                walk(child)
+
+        walk(root)
+        raw_text = ''.join(parts)
+
+        cleaned = re.sub(r'[^\S\n]+', ' ', raw_text)
+        cleaned = re.sub(r' *\n *', '\n', cleaned)
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        return cleaned.strip()
 
     def _get_first_heading(self, full_href: str) -> Optional[str]:
         soup = self._load_soup(full_href)
@@ -197,6 +219,10 @@ class ChapterExtractor:
         if node.name == 'br':
             yield ("\n", current_anchor)
             return
+
+        if node.name in ('p', 'div', 'li', 'blockquote',
+                        'h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+            yield ("\n\n", current_anchor)
 
         anchor_id = node.get('id') if node.get('id') in anchor_elements else None
         if anchor_id is not None:
@@ -313,7 +339,7 @@ class ChapterExtractor:
                 anchor = entry["anchor"]
                 if not anchor or anchor not in anchor_texts:
                     continue
-                section_text = " ".join(anchor_texts[anchor]).strip()
+                section_text = "".join(anchor_texts[anchor]).strip()
                 if len(section_text) < self.min_chars:
                     continue
                 heading = self._get_first_heading(full_href)
@@ -345,6 +371,8 @@ class ChapterExtractor:
                 tag.decompose()
             for br in soup.find_all("br"):
                 br.replace_with("\n")
+            for tag in soup.find_all(['p', 'div', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+                tag.insert_after('\n')
             for h_tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
                 raw = h_tag.get_text(separator='\n').strip()
                 cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
@@ -353,7 +381,7 @@ class ChapterExtractor:
 
             text = soup.get_text('', strip=False)
             if text:
-                all_text += text + " "
+                all_text += text.strip() + " "
 
         if not heading_positions:
             return []
