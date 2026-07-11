@@ -23,7 +23,7 @@ Languages restricted to that of the libraries and models used. Basically, there 
 2. Simple sentence splitter (`--simple-split`) supports [24 languages](https://github.com/mediacloud/sentence-splitter/tree/develop#languages); Wtpsplit depends on a model and currently supports [85 languages](https://arxiv.org/html/2406.16678v2#A1.T15). Simple splitter is enough for regular books in some European language.
 3. Bertalign sentence alignment depends on a model and currently supports [109 languages](https://huggingface.co/sentence-transformers/LaBSE).
 
-If both languages you want are in the [LaBSE list](https://huggingface.co/sentence-transformers/LaBSE), you are probably fine even if lingua or wtpsplit don't support them. Or that's how it's supposed to work.
+You can just give it a try and see if it works with your languages. Chances are it would even if some of the modules don't support them. That's how it's supposed to work anyway.
 
 ## Installation
 
