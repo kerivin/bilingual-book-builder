@@ -36,10 +36,13 @@ class ChapterAligner:
         if not source_text.strip() or not target_text.strip():
             return []
 
+        src_lang = self.source_language
+        tgt_lang = self.target_language
+
         texts_to_detect_language = []
-        if self.source_language is None:
+        if src_lang is None:
             texts_to_detect_language.append(source_text)
-        if self.target_language is None:
+        if tgt_lang is None:
             texts_to_detect_language.append(target_text)
 
         if texts_to_detect_language:
@@ -52,14 +55,14 @@ class ChapterAligner:
                 languages = []
 
             if languages:
-                if not self.source_language:
-                    self.source_language = languages[0]
-                if not self.target_language:
-                    self.target_language = languages[1] if len(languages) > 1 else languages[0]
+                if not src_lang:
+                    src_lang = languages[0]
+                if not tgt_lang:
+                    tgt_lang = languages[1] if len(languages) > 1 else languages[0]
 
         try:
-            source_sentences = self.splitter.run(source_text, self.source_language)
-            target_sentences = self.splitter.run(target_text, self.target_language)
+            source_sentences = self.splitter.run(source_text, src_lang)
+            target_sentences = self.splitter.run(target_text, tgt_lang)
         except Exception as e:
             e.add_note("^ ChapterSplitter")
             raise
