@@ -4,7 +4,7 @@ from tqdm import tqdm
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description='Create a bilingual EPUB from two EPUB books in different languages.'
+        description='Create a bilingual parallel text EPUB from two EPUB books in different languages.'
     )
     parser.add_argument('-s', '--source', type=str, required=True, help='Path to source (original) language EPUB')
     parser.add_argument('-t', '--target', type=str, required=True, help='Path to target (translation) language EPUB. Its settings have priority over source EPUB')
@@ -19,7 +19,7 @@ def main() -> int:
     parser.add_argument('--keep-target-chapters', action='store_true', default=False, help='Whether to keep target chapters that have no source original')
     parser.add_argument('--align-model', type=str, default='LaBSE', help='Name or path to sentence aligner model (download LaBSE if omitted)')
     parser.add_argument('--split-model', type=str, default='sat-3l', help='Name or path to sentence splitter model (download sat-3l if omitted)')
-    parser.add_argument('--simple-split', action='store_true', default=False, help='Use heuristic sentence splitting instead of the split-model')
+    parser.add_argument('--simple-split', action='store_true', default=False, help='Use fast heuristic sentence splitting instead of the split-model.')
     parser.add_argument('-v', '--verbosity', choices=['silent', 'progress', 'verbose'], default='progress', help='Silent (no progress), Progress (show progress bars), Verbose (all messages)')
     
     args = parser.parse_args()
