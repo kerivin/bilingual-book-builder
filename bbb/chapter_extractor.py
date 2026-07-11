@@ -207,6 +207,8 @@ class ChapterExtractor:
 
     def _linearize_body(self, node, anchor_elements, current_anchor=None):
         if isinstance(node, NavigableString):
+            if isinstance(node, Comment):
+                return
             text = node.strip()
             if text:
                 yield (text, current_anchor)
