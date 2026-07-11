@@ -165,7 +165,9 @@ class ChapterExtractor:
                     break
                 ancestor = ancestor.parent
             else:
-                text = elem.get_text(" ", strip=True)
+                for br in elem.find_all("br"):
+                    br.replace_with("\n")
+                text = elem.get_text('', strip=False)
                 if text:
                     parts.append(text)
         return "\n\n".join(parts)
@@ -190,6 +192,10 @@ class ChapterExtractor:
         if not hasattr(node, 'name'):
             return
         if node.name in ('script', 'style', 'img', 'figure', 'svg', 'canvas'):
+            return
+
+        if node.name == 'br':
+            yield ("\n", current_anchor)
             return
 
         anchor_id = node.get('id') if node.get('id') in anchor_elements else None
@@ -337,12 +343,15 @@ class ChapterExtractor:
                 continue
             for tag in soup(["script", "style", "img", "figure", "svg", "canvas"]):
                 tag.decompose()
+            for br in soup.find_all("br"):
+                br.replace_with("\n")
             for h_tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
                 raw = h_tag.get_text(separator='\n').strip()
                 cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
                 title = cleaned or raw
                 heading_positions.append((title, len(all_text)))
-            text = soup.get_text(" ", strip=True)
+
+            text = soup.get_text('', strip=False)
             if text:
                 all_text += text + " "
 
