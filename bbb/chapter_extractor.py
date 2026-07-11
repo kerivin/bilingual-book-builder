@@ -94,7 +94,7 @@ class ChapterExtractor:
         keep_types = {
             'dedication', 'foreword', 'preface', 'introduction', 'prologue',
             'epigraph', 'acknowledgments', 'afterword', 'conclusion',
-            'part', 'chapter', 'subtitle'
+            'part', 'chapter'
         }
         if not soup.body:
             return False
