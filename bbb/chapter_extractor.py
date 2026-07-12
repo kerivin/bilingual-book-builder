@@ -245,6 +245,7 @@ class ChapterExtractor:
                     return
                 if not hasattr(node, 'name'):
                     return
+
                 anchor_id = node.get('id') if node.get('id') in anchor_elements else None
                 if anchor_id is not None:
                     current_anchor = anchor_id
@@ -254,8 +255,13 @@ class ChapterExtractor:
                     current_anchor = root_id
                     if node.name in HEADING_TAGS:
                         return
+
+                if node.name in HEADING_TAGS:
+                    return
+
                 if node.name in BLOCK_TAGS and current_anchor is not None:
                     anchor_texts[current_anchor].append(PARA_PLACEHOLDER)
+
                 for child in node.children:
                     walk(child)
 
