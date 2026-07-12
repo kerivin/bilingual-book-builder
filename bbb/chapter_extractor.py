@@ -9,7 +9,7 @@ from epub_utils import Document
 from bbb import progress, utils
 
 HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
-ALL_HEADING_ELEMS = ['hgroup', *HEADING_TAGS]
+HEADINGISH_TAGS = {'hgroup', *HEADING_TAGS}
 BLOCK_TAGS = {'p', 'div', 'li', 'blockquote', *HEADING_TAGS}
 HGROUP_BLOCKS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div', 'blockquote']
 TAG_BLACKLIST = {'script', 'style', 'img', 'figure', 'svg', 'canvas'}
@@ -207,9 +207,9 @@ class ChapterExtractor:
     def _find_first_heading(self, elem):
         if elem is None:
             return None
-        if elem.name in ALL_HEADING_ELEMS:
+        if elem.name in HEADINGISH_TAGS:
             return elem
-        for tag in ALL_HEADING_ELEMS:
+        for tag in HEADINGISH_TAGS:
             found = elem.find(tag)
             if found:
                 return found
@@ -254,11 +254,11 @@ class ChapterExtractor:
                 anchor_id = node.get('id') if node.get('id') in anchor_elements else None
                 if anchor_id is not None:
                     current_anchor = anchor_id
-                    if node.name in HEADING_TAGS:
+                    if node.name in HEADINGISH_TAGS:
                         return
                 elif root_id and node is anchor_elements.get(root_id):
                     current_anchor = root_id
-                    if node.name in HEADING_TAGS:
+                    if node.name in HEADINGISH_TAGS:
                         return
 
                 if node.name in HEADING_TAGS:
@@ -383,6 +383,8 @@ class ChapterExtractor:
             for entry in child_entries:
                 elem = soup.find(id=entry["anchor"])
                 if elem is not None:
+                    if elem.parent and elem.parent.name in HEADINGISH_TAGS:
+                        elem = elem.parent
                     anchor_elements[entry["anchor"]] = elem
 
             root_id = None
@@ -390,6 +392,8 @@ class ChapterExtractor:
                 root_id = ROOT_ID
                 first_heading = soup.find(HEADING_TAGS)
                 root_elem = first_heading if first_heading else (soup.body if soup.body else soup)
+                if first_heading and first_heading.parent and first_heading.parent.name in HEADINGISH_TAGS:
+                    root_elem = first_heading.parent
                 anchor_elements[ROOT_ID] = root_elem
 
             section_texts = self._extract_text(soup, anchor_elements, root_id=root_id)
