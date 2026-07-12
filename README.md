@@ -1,19 +1,18 @@
 # bilingual-book-builder
 
-<img width="300" src="https://github.com/user-attachments/assets/04345fb1-6a57-41f1-bc39-1efc50491af5" />
-
-<img width="300" src="https://github.com/user-attachments/assets/eac6ed36-7e4e-47c0-88fd-ec602c70d869" />
-
+<img width="300" align="left" alt="Screenshot" src="https://github.com/user-attachments/assets/4431d770-a0c6-4af6-ba49-cf1a7e1a0565" />
 
 Builds a parallel text ePub with sentences aligned side-by-side from two ePubs of the same book in different languages.
 
-Usage:
+#### Usage:
 
 `bbb -s original.epub -t translation.epub`
 
 or,
 
 online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb) (blocked in some regions, use proxy/VPN) (also, quite slow)
+
+<br clear="left"/>
 
 ## Supported Languages
 
@@ -82,7 +81,7 @@ python -m bbb --help
 | `-v {silent,progress,verbose}`<br>`--verbosity {silent,progress,verbose}` | How verbose logging is.<br>Default: progress
 
 
-Typical usage:
+#### Typical usage
 
 `bbb --help`
 
@@ -90,6 +89,18 @@ Typical usage:
 
 `bbb -s original.epub -t translation.epub -sl en -tl ru --simple-split --auto-threshold 0.6 --threads 4 --keep-target-chapters`
 
+#### Options for maximum performance
+
+1. Specify languages with `-sl` and `-tl`
+2. Set `--threads`
+3. Use `--simple-split` (if simple-split [supports your languages](https://github.com/mediacloud/sentence-splitter/tree/develop#languages))
+
+#### Options for maximum accuracy
+
+1. Specify languages with `-sl` and `-tl`
+2. Don't use `--simple-split`
+3. Optionally, you can use advanced aligner and splitter models. For now, they are [LaBSE](https://huggingface.co/sentence-transformers/LaBSE) and [sat-3l](https://huggingface.co/segment-any-text/sat-3l), but you can find models that work better with your languages and specify them with `--align-model` and `--split-model`
+4. If chapters were mapped incorrectly, map them manually with `-m` or keep auto-matching with a different `--auto-threshold`. To see how the similarity threshold affects the chapters mapping, use `--only auto-match`
 
 ## Disclaimer
 
