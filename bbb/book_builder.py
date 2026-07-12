@@ -9,10 +9,11 @@ from bbb import progress
 
 
 class BookBuilder:
-    def __init__(self, source_path: str, target_path: str, blocks: List[Dict[str, Any]]):
+    def __init__(self, source_path: str, target_path: str, blocks: List[Dict[str, Any]], copy_target_cover = False):
         self.source_path = source_path
         self.target_path = target_path
         self.blocks = blocks
+        self.copy_target_cover = copy_target_cover
         self.log = logging.getLogger(__name__)
 
     def _inline_text(self, text: str) -> str:
@@ -32,7 +33,8 @@ class BookBuilder:
 
     def _copy_cover(self, new_book: epub.EpubBook) -> None:
         cover_id = None
-        opf_meta = self.target_book.get_metadata(epub.NAMESPACES['OPF'], 'meta')
+        book = self.target_book if self.copy_target_cover else self.source_book
+        opf_meta = book.get_metadata(epub.NAMESPACES['OPF'], 'meta')
         for val, attrs in opf_meta:
             if attrs.get('name') == 'cover':
                 cover_id = attrs.get('content')
@@ -40,7 +42,7 @@ class BookBuilder:
 
         cover_item = None
         if cover_id:
-            cover_item = self.target_book.get_item_with_id(cover_id)
+            cover_item = book.get_item_with_id(cover_id)
 
         if cover_item:
             new_book.set_cover(cover_item.file_name, cover_item.get_content())

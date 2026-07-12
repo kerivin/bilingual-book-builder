@@ -1,5 +1,7 @@
 from ebooklib import epub
 import logging
+from typing import Literal
+
 from bbb import progress
 from bbb.chapter_extractor import ChapterExtractor
 from bbb.chapter_mapper import ChapterMapper
@@ -19,6 +21,7 @@ class BBB:
                 only: str | None = None,
                 keep_unmatched_source_chapters = False,
                 keep_unmatched_target_chapters = False,
+                cover: Literal['source', 'target'] = 'source',
                 align_model = 'LaBSE',
                 split_model = 'sat-3l',
                 simple_split: bool = False,
@@ -36,6 +39,7 @@ class BBB:
         self.only = only
         self.keep_unmatched_source_chapters = keep_unmatched_source_chapters
         self.keep_unmatched_target_chapters = keep_unmatched_target_chapters
+        self.cover = cover
         self.align_model = align_model
         self.split_model = split_model
         self.simple_split = simple_split
@@ -113,6 +117,7 @@ class BBB:
             source_path = self.source_path,
             target_path = self.target_path,
             blocks = aligned_chapters,
+            copy_target_cover = self.cover == 'target'
         ).run()
 
         if not new_book:

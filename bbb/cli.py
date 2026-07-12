@@ -17,9 +17,10 @@ def main() -> int:
     parser.add_argument('--only', choices=['auto-match', 'extract'], default=None, help='Extract/auto-match chapters and display them without generating a new EPUB')
     parser.add_argument('--keep-source-chapters', action='store_true', default=False, help='Whether to keep source chapters that have no target translation')
     parser.add_argument('--keep-target-chapters', action='store_true', default=False, help='Whether to keep target chapters that have no source original')
+    parser.add_argument('--cover', choices=['source', 'target'], default='source', help='Which book\'s cover to copy for the new ePub')
     parser.add_argument('--align-model', type=str, default='LaBSE', help='Name or path to sentence aligner model (download LaBSE if omitted)')
     parser.add_argument('--split-model', type=str, default='sat-3l', help='Name or path to sentence splitter model (download sat-3l if omitted)')
-    parser.add_argument('--simple-split', action='store_true', default=False, help='Use fast heuristic sentence splitting instead of the split-model.')
+    parser.add_argument('--simple-split', action='store_true', default=False, help='Use fast heuristic sentence splitting instead of the split-model')
     parser.add_argument('-v', '--verbosity', choices=['silent', 'progress', 'verbose'], default='progress', help='Silent (no progress), Progress (show progress bars), Verbose (all messages)')
     
     args = parser.parse_args()
@@ -59,6 +60,7 @@ def main() -> int:
         args.only,
         args.keep_source_chapters,
         args.keep_target_chapters,
+        args.cover,
         args.align_model,
         args.split_model,
         args.simple_split,
