@@ -219,7 +219,7 @@ class BookBuilder:
             .bilingual-heading {
                 font-weight: bold;
                 text-align: center;
-                white-space: pre-wrap;
+                white-space: pre-line;
                 margin: 0.5em 0;
             }
             .bilingual-table,
