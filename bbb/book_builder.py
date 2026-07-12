@@ -136,6 +136,39 @@ class BookBuilder:
             identifier = f"urn:uuid:{uuid.uuid4()}"
         new_book.set_identifier(identifier)
 
+    def _build_toc(self, flat_entries: List[Dict[str, Any]]) -> list:
+        tree = {}
+        for entry in flat_entries:
+            path = entry['path']
+            link = epub.Link(entry['file_name'], entry['toc_title'], entry['uid'])
+
+            node = tree
+            for i, part in enumerate(path):
+                if part not in node:
+                    node[part] = {'link': None, 'sub': {}}
+                if i == len(path) - 1:
+                    node[part]['link'] = link
+                node = node[part]['sub']
+
+        def build(items_subtree):
+            toc_items = []
+            for label, info in items_subtree.items():
+                child_toc = build(info['sub'])
+                link = info['link']
+                if link is not None:
+                    if child_toc:
+                        section = epub.Section(label, href=link.href)
+                        toc_items.append((section, child_toc))
+                    else:
+                        toc_items.append(link)
+                else:
+                    if child_toc:
+                        section = epub.Section(label)
+                        toc_items.append((section, child_toc))
+            return toc_items
+
+        return build(tree)
+
     def _create_xhtml_item(self, book: epub.EpubBook, file_name: str, title: str, body_html: str, css_links: List[str], uid: Optional[str] = None):
         if uid is None:
             uid = f"chap_{uuid.uuid4().hex[:8]}"
@@ -237,7 +270,7 @@ class BookBuilder:
         css_links.append(bilingual_css.file_name)
 
         new_spine_ids = []
-        toc_links = []
+        toc_entries = []
 
         with progress.phase('building', len(self.blocks), "Building chapters"):
             for block_idx, block in enumerate(self.blocks):
@@ -254,6 +287,7 @@ class BookBuilder:
                 if source_info is not None and target_info is not None:
                     source_title = source_info.get('title', 'Source')
                     target_title = target_info.get('title', 'Target')
+
                     source_toc_title = source_info.get('toc_title', source_title.replace('\n', ' '))
                     target_toc_title = target_info.get('toc_title', target_title.replace('\n', ' '))
                     self.log.info(f"Building {source_toc_title} ─ {target_toc_title}...")
@@ -263,8 +297,13 @@ class BookBuilder:
                     item = self._create_xhtml_item(new_book, file_name, f"{source_title} / {target_title}", body_html, css_links, uid)
                     new_spine_ids.append(item.get_id())
 
-                    toc_title = target_info.get('toc_title', target_title.replace('\n', ' '))
-                    toc_links.append(epub.Link(item.file_name, toc_title, item.get_id()))
+                    toc_path = target_info.get('path', [target_toc_title])
+                    toc_entries.append({
+                        'file_name': item.file_name,
+                        'uid': item.get_id(),
+                        'toc_title': target_toc_title,
+                        'path': toc_path,
+                    })
 
                 elif source_info is not None:
                     title = source_info.get('title', f'Chapter {block_idx}')
@@ -275,7 +314,13 @@ class BookBuilder:
                     item = self._create_xhtml_item(new_book, file_name, title, f'<div class="bilingual-source-only">{body}</div>', css_links, uid)
                     new_spine_ids.append(item.get_id())
 
-                    toc_links.append(epub.Link(item.file_name, title, item.get_id()))
+                    toc_path = source_info.get('path', [toc_title])
+                    toc_entries.append({
+                        'file_name': item.file_name,
+                        'uid': item.get_id(),
+                        'toc_title': toc_title,
+                        'path': toc_path,
+                    })
 
                 elif target_info is not None:
                     title = target_info.get('title', f'Chapter {block_idx}')
@@ -286,7 +331,13 @@ class BookBuilder:
                     item = self._create_xhtml_item(new_book, file_name, title, f'<div class="bilingual-target-only">{body}</div>', css_links, uid)
                     new_spine_ids.append(item.get_id())
 
-                    toc_links.append(epub.Link(item.file_name, toc_title, item.get_id()))
+                    toc_path = target_info.get('path', [toc_title])
+                    toc_entries.append({
+                        'file_name': item.file_name,
+                        'uid': item.get_id(),
+                        'toc_title': toc_title,
+                        'path': toc_path,
+                    })
 
                 progress.update('building')
 
@@ -294,7 +345,7 @@ class BookBuilder:
         new_book.add_item(epub.EpubNav())
 
         new_book.spine = new_spine_ids
-        new_book.toc = toc_links
+        new_book.toc = self._build_toc(toc_entries)
 
         self.log.info("Book is ready!")
         return new_book

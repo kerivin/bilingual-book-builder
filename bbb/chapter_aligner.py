@@ -94,17 +94,7 @@ class ChapterAligner:
         return aligned_paras
 
     def run(self) -> List[Dict[str, Any]]:
-        """
-        Returns a list of chapter blocks in the exact order of self.chapter_pairs.
-        Each block:
-          {
-            'source': { 'title', 'text', 'index' } or None,
-            'target': { 'title', 'text', 'index' } or None,
-            'alignment': [{'source': str, 'target': str}, ...] or None
-          }
-        """
         output = []
-
         for source_index, target_index in self.chapter_pairs:
             block = {'source': None, 'target': None, 'alignment': None}
 
@@ -113,7 +103,9 @@ class ChapterAligner:
                 block['source'] = {
                     'title': ch['title'],
                     'text': ch['full_text'] if target_index is None else None,
-                    'index': ch['index']
+                    'index': ch['index'],
+                    'path': ch['path'],
+                    'toc_title': ch['toc_title'],
                 }
 
             if target_index is not None:
@@ -121,7 +113,9 @@ class ChapterAligner:
                 block['target'] = {
                     'title': ch['title'],
                     'text': ch['full_text'] if source_index is None else None,
-                    'index': ch['index']
+                    'index': ch['index'],
+                    'path': ch['path'],
+                    'toc_title': ch['toc_title'],
                 }
 
             output.append(block)

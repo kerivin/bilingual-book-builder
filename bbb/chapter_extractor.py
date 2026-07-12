@@ -46,11 +46,11 @@ class ChapterExtractor:
                 self.log.info(f"{ch['toc_title']}\n{ch['preview']}")
                 utils.print_horizontal_line(self.log.info)
 
-    def _create_chapter(self, title: str, toc_title: str, full_text: str,
-                        item_id: Optional[str] = None) -> Dict[str, Any]:
+    def _create_chapter(self, title: str, toc_title: str, path: str, full_text: str, item_id: Optional[str] = None) -> Dict[str, Any]:
         return {
             "title": re.sub(r'\n\s*\n+', '\n', title).strip(),
             "toc_title": toc_title,
+            "path": path,
             "full_text": full_text,
             "word_count": len(full_text.split()),
             "preview": " ".join(full_text.split()[:self.preview_words])
@@ -246,21 +246,18 @@ class ChapterExtractor:
         if not toc:
             return []
 
-        all_items = []
-        def collect_all(nodes):
+        def collect_with_path(nodes, path=()):
             for node in nodes:
-                all_items.append(node)
+                current_path = path + (node.label,)
+                yield node, current_path
                 if node.children:
-                    collect_all(node.children)
-        collect_all(toc.get_toc_items())
-        if not all_items:
-            return []
+                    yield from collect_with_path(node.children, current_path)
 
         skip_spine = self._find_guide_skip_indices()
-
         entries = []
         seen_targets = set()
-        for item in all_items:
+
+        for item, path in collect_with_path(toc.get_toc_items()):
             idx = self._resolve_toc_target_to_spine_index(item.target)
             if idx is None or idx in skip_spine:
                 continue
@@ -271,6 +268,7 @@ class ChapterExtractor:
             seen_targets.add(target_key)
             entries.append({
                 "label": item.label,
+                "path": list(path),
                 "spine_index": idx,
                 "anchor": anchor,
                 "full_href": self._spine_full_hrefs[idx],
@@ -304,7 +302,8 @@ class ChapterExtractor:
                         title=title,
                         toc_title=file_entries[0]["label"],
                         full_text=text,
-                        item_id=self._spine_idrefs[idx]
+                        item_id=self._spine_idrefs[idx],
+                        path=file_entries[0]["path"],
                     ))
                 continue
 
@@ -327,7 +326,8 @@ class ChapterExtractor:
                         title=title,
                         toc_title=entry["label"],
                         full_text=text,
-                        item_id=self._spine_idrefs[idx]
+                        item_id=self._spine_idrefs[idx],
+                        path=entry["path"],
                     ))
                 continue
 
@@ -345,7 +345,8 @@ class ChapterExtractor:
                     title=title,
                     toc_title=entry["label"],
                     full_text=section_text,
-                    item_id=self._spine_idrefs[idx]
+                    item_id=self._spine_idrefs[idx],
+                    path=entry["path"],
                 ))
 
         for i, ch in enumerate(chapters):
