@@ -59,7 +59,7 @@ class ChapterAligner:
                 if tgt_lang is None and len(detected) > 1:
                     tgt_lang = detected[1]
 
-        src_paras = self.splitter.run(source_text, src_lang)   # List[List[str]]
+        src_paras = self.splitter.run(source_text, src_lang)
         tgt_paras = self.splitter.run(target_text, tgt_lang)
 
         src_flat = [s for para in src_paras for s in para]
@@ -81,14 +81,73 @@ class ChapterAligner:
             e.add_note("^ Bertalign")
             raise
 
-        para_segments: Dict[int, List[Dict[str, str]]] = {}
+        matched_src = set()
+        matched_tgt = set()
         for src_indices, tgt_indices in aligner.result:
-            if not src_indices or not tgt_indices:
-                continue
-            src_seg = '\n'.join(aligner.src_sents[i] for i in src_indices)
-            tgt_seg = '\n'.join(aligner.tgt_sents[i] for i in tgt_indices)
-            para_idx = bisect_right(src_bounds, src_indices[0]) - 1
+            if src_indices:
+                matched_src.update(src_indices)
+            if tgt_indices:
+                matched_tgt.update(tgt_indices)
+
+        para_segments: Dict[int, List[Dict[str, str]]] = {}
+        next_src = 0
+        next_tgt = 0
+        current_para_idx = None
+
+        for src_indices, tgt_indices in aligner.result:
+            min_src = min(src_indices) if src_indices else None
+            min_tgt = min(tgt_indices) if tgt_indices else None
+
+            if src_indices:
+                for i in range(next_src, min_src):
+                    if i not in matched_src:
+                        para_idx = bisect_right(src_bounds, i) - 1
+                        para_segments.setdefault(para_idx, []).append({'source': src_flat[i], 'target': ''})
+                        current_para_idx = para_idx
+            else:
+                for i in range(next_src, len(src_flat)):
+                    if i not in matched_src:
+                        para_idx = bisect_right(src_bounds, i) - 1
+                        para_segments.setdefault(para_idx, []).append({'source': src_flat[i], 'target': ''})
+                        current_para_idx = para_idx
+
+            if tgt_indices:
+                for j in range(next_tgt, min_tgt):
+                    if j not in matched_tgt:
+                        para = current_para_idx if current_para_idx is not None else 0
+                        para_segments.setdefault(para, []).append({'source': '', 'target': tgt_flat[j]})
+            else:
+                for j in range(next_tgt, len(tgt_flat)):
+                    if j not in matched_tgt:
+                        para = current_para_idx if current_para_idx is not None else 0
+                        para_segments.setdefault(para, []).append({'source': '', 'target': tgt_flat[j]})
+
+            src_seg = '\n'.join(src_flat[i] for i in src_indices) if src_indices else ''
+            tgt_seg = '\n'.join(tgt_flat[i] for i in tgt_indices) if tgt_indices else ''
+
+            if src_indices:
+                para_idx = bisect_right(src_bounds, min_src) - 1
+                current_para_idx = para_idx
+            else:
+                para_idx = current_para_idx if current_para_idx is not None else 0
+
             para_segments.setdefault(para_idx, []).append({'source': src_seg, 'target': tgt_seg})
+
+            if src_indices:
+                next_src = max(src_indices) + 1
+            if tgt_indices:
+                next_tgt = max(tgt_indices) + 1
+
+        for i in range(next_src, len(src_flat)):
+            if i not in matched_src:
+                para_idx = bisect_right(src_bounds, i) - 1
+                para_segments.setdefault(para_idx, []).append({'source': src_flat[i], 'target': ''})
+                current_para_idx = para_idx
+
+        for j in range(next_tgt, len(tgt_flat)):
+            if j not in matched_tgt:
+                para = current_para_idx if current_para_idx is not None else 0
+                para_segments.setdefault(para, []).append({'source': '', 'target': tgt_flat[j]})
 
         aligned_paras = [para_segments[i] for i in sorted(para_segments)]
         return aligned_paras
