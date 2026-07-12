@@ -92,62 +92,61 @@ class ChapterAligner:
         para_segments: Dict[int, List[Dict[str, str]]] = {}
         next_src = 0
         next_tgt = 0
-        current_para_idx = None
+        current_para_idx = 0
 
         for src_indices, tgt_indices in aligner.result:
-            min_src = min(src_indices) if src_indices else None
-            min_tgt = min(tgt_indices) if tgt_indices else None
-
             if src_indices:
-                for i in range(next_src, min_src):
-                    if i not in matched_src:
-                        para_idx = bisect_right(src_bounds, i) - 1
-                        para_segments.setdefault(para_idx, []).append({'source': src_flat[i], 'target': ''})
+                match_src_start = min(src_indices)
+                while next_src < match_src_start:
+                    if next_src not in matched_src:
+                        para_idx = bisect_right(src_bounds, next_src) - 1
+                        para_segments.setdefault(para_idx, []).append({'source': src_flat[next_src], 'target': ''})
                         current_para_idx = para_idx
+                    next_src += 1
             else:
-                for i in range(next_src, len(src_flat)):
-                    if i not in matched_src:
-                        para_idx = bisect_right(src_bounds, i) - 1
-                        para_segments.setdefault(para_idx, []).append({'source': src_flat[i], 'target': ''})
+                while next_src < len(src_flat):
+                    if next_src not in matched_src:
+                        para_idx = bisect_right(src_bounds, next_src) - 1
+                        para_segments.setdefault(para_idx, []).append({'source': src_flat[next_src], 'target': ''})
                         current_para_idx = para_idx
+                    next_src += 1
 
             if tgt_indices:
-                for j in range(next_tgt, min_tgt):
-                    if j not in matched_tgt:
-                        para = current_para_idx if current_para_idx is not None else 0
-                        para_segments.setdefault(para, []).append({'source': '', 'target': tgt_flat[j]})
+                match_tgt_start = min(tgt_indices)
+                while next_tgt < match_tgt_start:
+                    if next_tgt not in matched_tgt:
+                        para_segments.setdefault(current_para_idx, []).append({'source': '', 'target': tgt_flat[next_tgt]})
+                    next_tgt += 1
             else:
-                for j in range(next_tgt, len(tgt_flat)):
-                    if j not in matched_tgt:
-                        para = current_para_idx if current_para_idx is not None else 0
-                        para_segments.setdefault(para, []).append({'source': '', 'target': tgt_flat[j]})
+                while next_tgt < len(tgt_flat):
+                    if next_tgt not in matched_tgt:
+                        para_segments.setdefault(current_para_idx, []).append({'source': '', 'target': tgt_flat[next_tgt]})
+                    next_tgt += 1
 
             src_seg = '\n'.join(src_flat[i] for i in src_indices) if src_indices else ''
             tgt_seg = '\n'.join(tgt_flat[i] for i in tgt_indices) if tgt_indices else ''
 
             if src_indices:
-                para_idx = bisect_right(src_bounds, min_src) - 1
+                para_idx = bisect_right(src_bounds, min(src_indices)) - 1
                 current_para_idx = para_idx
-            else:
-                para_idx = current_para_idx if current_para_idx is not None else 0
-
-            para_segments.setdefault(para_idx, []).append({'source': src_seg, 'target': tgt_seg})
+            para_segments.setdefault(current_para_idx, []).append({'source': src_seg, 'target': tgt_seg})
 
             if src_indices:
                 next_src = max(src_indices) + 1
             if tgt_indices:
                 next_tgt = max(tgt_indices) + 1
 
-        for i in range(next_src, len(src_flat)):
-            if i not in matched_src:
-                para_idx = bisect_right(src_bounds, i) - 1
-                para_segments.setdefault(para_idx, []).append({'source': src_flat[i], 'target': ''})
+        while next_src < len(src_flat):
+            if next_src not in matched_src:
+                para_idx = bisect_right(src_bounds, next_src) - 1
+                para_segments.setdefault(para_idx, []).append({'source': src_flat[next_src], 'target': ''})
                 current_para_idx = para_idx
+            next_src += 1
 
-        for j in range(next_tgt, len(tgt_flat)):
-            if j not in matched_tgt:
-                para = current_para_idx if current_para_idx is not None else 0
-                para_segments.setdefault(para, []).append({'source': '', 'target': tgt_flat[j]})
+        while next_tgt < len(tgt_flat):
+            if next_tgt not in matched_tgt:
+                para_segments.setdefault(current_para_idx, []).append({'source': '', 'target': tgt_flat[next_tgt]})
+            next_tgt += 1
 
         aligned_paras = [para_segments[i] for i in sorted(para_segments)]
         return aligned_paras
