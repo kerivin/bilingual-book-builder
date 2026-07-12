@@ -12,7 +12,6 @@ HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 ALL_HEADING_ELEMS = ['hgroup', *HEADING_TAGS]
 BLOCK_TAGS = {'p', 'div', 'li', 'blockquote', *HEADING_TAGS}
 HGROUP_BLOCKS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div', 'blockquote']
-SKIP_CLASSES = {'cn', 'chapnum', 'chapter-number'}
 TAG_BLACKLIST = {'script', 'style', 'img', 'figure', 'svg', 'canvas'}
 BR_PLACEHOLDER = '\uE000'
 TEXT_BR_PLACEHOLDER = '__BR__'
@@ -20,9 +19,8 @@ PARA_PLACEHOLDER = '__PARA__'
 
 
 def _normalize_text(raw):
-    """Collapse spaces/tabs but preserve newlines, then clean up."""
-    text = re.sub(r'[^\S\n]+', ' ', raw)   # multiple horizontal whitespace -> single space
-    text = re.sub(r' *\n *', '\n', text)   # remove spaces adjacent to newlines
+    text = re.sub(r'[^\S\n]+', ' ', raw) # multiple horizontal whitespace -> single space
+    text = re.sub(r' *\n *', '\n', text) # remove spaces adjacent to newlines
     text = re.sub(r'\n{3,}', '\n\n', text) # at most two consecutive newlines
     return text.strip()
 
@@ -170,8 +168,14 @@ class ChapterExtractor:
             tag.decompose()
         for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
             comment.extract()
-        for tag in soup.find_all(class_=lambda c: c and set(c.split()) & SKIP_CLASSES):
-            tag.decompose()
+
+    @staticmethod
+    def _is_simple_number_text(text: str) -> bool:
+        return bool(re.fullmatch(r'[0-9IVXLCDMivxlcdm]+', text))
+
+    def _is_numeric_roman_block(self, elem) -> bool:
+        content = elem.get_text(separator=' ', strip=True)
+        return self._is_simple_number_text(content)
 
     def _clean_heading(self, raw: str) -> str:
         cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
@@ -259,6 +263,9 @@ class ChapterExtractor:
                 if node.name in HEADING_TAGS:
                     return
 
+                if node.name in BLOCK_TAGS and self._is_numeric_roman_block(node):
+                    return
+
                 if node.name in BLOCK_TAGS and current_anchor is not None:
                     anchor_texts[current_anchor].append(PARA_PLACEHOLDER)
 
@@ -281,6 +288,8 @@ class ChapterExtractor:
                     parts.append(str(node))
                     return
                 if not hasattr(node, 'name'):
+                    return
+                if node.name in BLOCK_TAGS and self._is_numeric_roman_block(node):
                     return
                 if node.name in BLOCK_TAGS:
                     parts.append(PARA_PLACEHOLDER)
