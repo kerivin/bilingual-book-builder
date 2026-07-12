@@ -137,8 +137,8 @@ class BookBuilder:
     def _build_toc(self, flat_entries: List[Dict[str, Any]]) -> list:
         tree = {}
         for entry in flat_entries:
-            path = entry['path']
-            link = epub.Link(entry['file_name'], entry['toc_title'], entry['uid'])
+            path = entry['toc_path']
+            link = epub.Link(entry['file_name'], path[-1] if path else '', entry['uid'])
             node = tree
             for i, part in enumerate(path):
                 if part not in node:
@@ -208,8 +208,7 @@ class BookBuilder:
                 )
         return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
 
-    def _make_heading_html(self, path: List[str], prev_path: List[str],
-                           max_depth: int) -> str:
+    def _make_heading_html(self, path: List[str], prev_path: List[str]) -> str:
         common = 0
         for a, b in zip(path, prev_path):
             if a == b:
@@ -234,15 +233,16 @@ class BookBuilder:
                        target_info: Optional[Dict[str, Any]],
                        alignment: List[List[Dict[str, str]]],
                        prev_source_path: List[str],
-                       prev_target_path: List[str],
-                       max_depth: int) -> Dict[str, Any]:
+                       prev_target_path: List[str]) -> Dict[str, Any]:
 
         if source_info and target_info:
-            src_path = source_info.get('path', [source_info.get('title', '')])
-            tgt_path = target_info.get('path', [target_info.get('title', '')])
+            src_display = source_info.get('display_path', [])
+            tgt_display = target_info.get('display_path', [])
+            src_toc = source_info.get('toc_path', [])
+            tgt_toc = target_info.get('toc_path', [])
 
-            src_heading = self._make_heading_html(src_path, prev_source_path, max_depth)
-            tgt_heading = self._make_heading_html(tgt_path, prev_target_path, max_depth)
+            src_heading = self._make_heading_html(src_display, prev_source_path)
+            tgt_heading = self._make_heading_html(tgt_display, prev_target_path)
 
             header_row = (
                 f'<tr class="title-row">'
@@ -252,38 +252,36 @@ class BookBuilder:
             )
             body_html = self._build_two_column_html(alignment, header_row)
 
-            flat_title = source_info['title'] + ' / ' + target_info['title']
-            toc_title = target_info.get('toc_title') or target_info['title'].replace('\n', ' ')
-            toc_path = tgt_path
+            flat_title = src_display[-1] + ' / ' + tgt_display[-1]
+            toc_path = tgt_toc
 
         elif source_info and not target_info:
-            src_path = source_info.get('path', [source_info.get('title', '')])
-            heading = self._make_heading_html(src_path, prev_source_path, max_depth)
-            body = self._text_to_paragraphs(source_info.get('text', ''))
+            src_display = source_info.get('display_path', [])
+            src_toc = source_info.get('toc_path', [])
+            heading = self._make_heading_html(src_display, prev_source_path)
+            body = self._text_to_paragraphs(source_info.get('full_text', ''))
             body_html = f'<div class="bilingual-source-only">\n{heading}\n{body}\n</div>'
 
-            flat_title = source_info['title']
-            toc_title = source_info.get('toc_title') or source_info['title'].replace('\n', ' ')
-            toc_path = src_path
+            flat_title = src_display[-1] if src_display else ''
+            toc_path = src_toc
 
         elif target_info and not source_info:
-            tgt_path = target_info.get('path', [target_info.get('title', '')])
-            heading = self._make_heading_html(tgt_path, prev_target_path, max_depth)
-            body = self._text_to_paragraphs(target_info.get('text', ''))
+            tgt_display = target_info.get('display_path', [])
+            tgt_toc = target_info.get('toc_path', [])
+            heading = self._make_heading_html(tgt_display, prev_target_path)
+            body = self._text_to_paragraphs(target_info.get('full_text', ''))
             body_html = f'<div class="bilingual-target-only">\n{heading}\n{body}\n</div>'
 
-            flat_title = target_info['title']
-            toc_title = target_info.get('toc_title') or target_info['title'].replace('\n', ' ')
-            toc_path = tgt_path
+            flat_title = tgt_display[-1] if tgt_display else ''
+            toc_path = tgt_toc
 
         else:
-            body_html = flat_title = toc_title = ''
+            body_html = flat_title = ''
             toc_path = []
 
         return {
             'body_html': body_html,
             'flat_title': flat_title,
-            'toc_title': toc_title,
             'toc_path': toc_path,
         }
 
@@ -342,13 +340,6 @@ class BookBuilder:
         new_book.add_item(bilingual_css)
         css_links.append(bilingual_css.file_name)
 
-        max_depth = 0
-        for block in self.blocks:
-            for info in (block.get('source'), block.get('target')):
-                if info:
-                    max_depth = max(max_depth, len(info.get('path', [])))
-        max_depth = max(max_depth, 1)
-
         new_spine_ids = []
         toc_entries = []
 
@@ -368,13 +359,12 @@ class BookBuilder:
                     source_info, target_info, alignment,
                     prev_source_path=last_source_path,
                     prev_target_path=last_target_path,
-                    max_depth=max_depth,
                 )
 
                 if source_info:
-                    last_source_path = source_info.get('path', [])
+                    last_source_path = source_info.get('display_path', [])
                 if target_info:
-                    last_target_path = target_info.get('path', [])
+                    last_target_path = target_info.get('display_path', [])
 
                 file_name = f"{base_dir}chap_{block_idx:03d}.xhtml"
                 uid = f"chap_{block_idx:03d}"
@@ -386,8 +376,7 @@ class BookBuilder:
                 toc_entries.append({
                     'file_name': item.file_name,
                     'uid': item.get_id(),
-                    'toc_title': ch['toc_title'],
-                    'path': ch['toc_path'],
+                    'toc_path': ch['toc_path'],
                 })
 
                 progress.update('building')

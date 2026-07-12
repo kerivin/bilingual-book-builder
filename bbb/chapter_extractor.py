@@ -43,14 +43,15 @@ class ChapterExtractor:
             title = self.doc.package.metadata.title
             self.log.info(f"\n{title}\n------")
             for ch in chapters:
-                self.log.info(f"{ch['toc_title']}\n{ch['preview']}")
+                toc_label = ch['toc_path'][-1] if ch['toc_path'] else ""
+                self.log.info(f"{toc_label}\n{ch['preview']}")
                 utils.print_horizontal_line(self.log.info)
 
-    def _create_chapter(self, title: str, toc_title: str, path, full_text: str, item_id: Optional[str] = None) -> Dict[str, Any]:
+    def _create_chapter(self, display_path: List[str], toc_path: List[str],
+                        full_text: str, item_id: Optional[str] = None) -> Dict[str, Any]:
         return {
-            "title": re.sub(r'\n\s*\n+', '\n', title).strip(),
-            "toc_title": toc_title,
-            "path": path,
+            "display_path": display_path,
+            "toc_path": toc_path,
             "full_text": full_text,
             "word_count": len(full_text.split()),
             "preview": " ".join(full_text.split()[:self.preview_words])
@@ -144,90 +145,24 @@ class ChapterExtractor:
             return None
 
     def _clean_soup(self, soup: BeautifulSoup) -> None:
-        """Remove unwanted elements in-place."""
         for tag in soup(TAG_BLACKLIST):
             tag.decompose()
-
         for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
             comment.extract()
-
         for tag in soup.find_all(class_=lambda c: c and set(c.split()) & SKIP_CLASSES):
             tag.decompose()
 
-        # for br in soup.find_all("br"):
-        #     br.replace_with("\n")
-
     def _clean_heading(self, raw: str) -> str:
-        """Remove common chapter numbering artefacts from a heading."""
         cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
         return cleaned or raw
 
-    def _extract_sections(self, soup: BeautifulSoup,
-                        sections: List[Tuple[Tuple[str, ...], Any]]) -> Dict[Tuple[str, ...], str]:
-        self._clean_soup(soup)
-        root = soup.body if soup.body else soup
-
-        elem_to_path = {}
-        for path, elem in sections:
-            elem_to_path[id(elem)] = path
-
-        BR_PLACEHOLDER = '__BR__'
-        PARA_PLACEHOLDER = '__PARA__'
-        for br in root.find_all('br'):
-            br.replace_with(BR_PLACEHOLDER)
-
-        section_texts: Dict[Tuple[str, ...], List[str]] = {
-            path: [] for path, _ in sections
-        }
-        stack: List[Tuple[str, ...]] = []
-
-        def walk(node):
-            enter_anchor = False
-            if hasattr(node, 'name') and id(node) in elem_to_path:
-                sec_path = elem_to_path[id(node)]
-                stack.append(sec_path)
-                enter_anchor = True
-
-            if isinstance(node, NavigableString):
-                text = str(node)
-                if not stack:
-                    return
-                parent = node.parent
-                if (parent is not None
-                        and id(parent) in elem_to_path
-                        and stack[-1] == elem_to_path[id(parent)]):
-                    return
-                section_texts[stack[-1]].append(text)
-                return
-
-            if not hasattr(node, 'name'):
-                return
-
-            if node.name in BLOCK_TAGS and not enter_anchor:
-                if stack:
-                    section_texts[stack[-1]].append(PARA_PLACEHOLDER)
-
-            for child in node.children:
-                walk(child)
-
-            if enter_anchor:
-                stack.pop()
-
-        walk(root)
-
-        result = {}
-        for path, _ in sections:
-            raw = ''.join(section_texts[path])
-            raw = raw.replace(BR_PLACEHOLDER, '\n').replace(PARA_PLACEHOLDER, '\n\n')
-            text = re.sub(r'[^\S\n]+', ' ', raw)
-            text = re.sub(r' *\n *', '\n', text)
-            text = re.sub(r'\n{3,}', '\n\n', text)
-            result[path] = text.strip()
-        return result
+    def _extract_heading_with_newlines(self, elem) -> str:
+        if elem is None:
+            return ""
+        return elem.get_text(separator='\n').strip()
 
     def _extract_text(self, soup: BeautifulSoup, anchor_elements: Optional[Dict[str, Any]] = None, root_id: Optional[str] = None):
         self._clean_soup(soup)
-
         BR_PLACEHOLDER = '__BR__'
         PARA_PLACEHOLDER = '__PARA__'
 
@@ -279,7 +214,6 @@ class ChapterExtractor:
                 text = re.sub(r' *\n *', '\n', text)
                 text = re.sub(r'\n{3,}', '\n\n', text)
                 result[aid] = text.strip()
-            
             return result
 
         else:
@@ -339,13 +273,33 @@ class ChapterExtractor:
             seen_targets.add(target_key)
             toc_entries.append({
                 "label": item.label,
-                "path": list(path),
+                "toc_path_tuple": path,
                 "spine_index": idx,
                 "anchor": anchor,
                 "full_href": self._spine_full_hrefs[idx],
             })
         if not toc_entries:
             return []
+
+        # Build display titles for every prefix of toc paths
+        path_display_titles = {}
+        for entry in toc_entries:
+            soup = self._load_soup(entry["full_href"])
+            if not soup:
+                continue
+            self._clean_soup(soup)
+            heading_text = entry["label"]
+            if entry["anchor"] is not None:
+                elem = soup.find(id=entry["anchor"])
+                if elem is not None and elem.name in HEADING_TAGS:
+                    heading_text = self._extract_heading_with_newlines(elem)
+                elif elem is not None:
+                    heading_text = self._extract_heading_with_newlines(elem)
+            else:
+                first_h = soup.find(HEADING_TAGS)
+                if first_h:
+                    heading_text = self._extract_heading_with_newlines(first_h)
+            path_display_titles[entry["toc_path_tuple"]] = heading_text if heading_text else entry["label"]
 
         grouped: Dict[int, List[dict]] = {}
         order = []
@@ -397,10 +351,16 @@ class ChapterExtractor:
                 text = section_texts.get(sec_id, "")
                 if len(text) < self.min_chars:
                     continue
+
+                toc_path = list(entry["toc_path_tuple"])
+                display_path = []
+                for i in range(1, len(toc_path) + 1):
+                    prefix = tuple(toc_path[:i])
+                    display_path.append(path_display_titles.get(prefix, toc_path[i - 1]))
+
                 chapters.append(self._create_chapter(
-                    title="\n".join(entry["path"]),
-                    toc_title=entry["label"],
-                    path=entry["path"],
+                    display_path=display_path,
+                    toc_path=toc_path,
                     full_text=text,
                     item_id=self._spine_idrefs[idx],
                 ))
@@ -411,7 +371,7 @@ class ChapterExtractor:
         return chapters
 
     def _extract_via_headers(self) -> List[Dict[str, Any]]:
-        heading_positions = []   # (title, start_index)
+        heading_positions = []
         all_text = ""
 
         skip_spine = self._find_guide_skip_indices()
@@ -423,7 +383,6 @@ class ChapterExtractor:
                 continue
 
             self._clean_soup(soup)
-
             headings_in_this_file = []
             for h_tag in soup.find_all(HEADING_TAGS):
                 raw = h_tag.get_text(separator='\n').strip()
@@ -457,7 +416,11 @@ class ChapterExtractor:
             body = all_text[start:end].strip()
             if len(body) < self.min_chars:
                 continue
-            chapters.append(self._create_chapter(title, title, [title], body))
+            chapters.append(self._create_chapter(
+                display_path=[title],
+                toc_path=[title],
+                full_text=body
+            ))
 
         for i, ch in enumerate(chapters):
             ch["index"] = i

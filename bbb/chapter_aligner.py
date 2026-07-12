@@ -101,21 +101,19 @@ class ChapterAligner:
             if source_index is not None:
                 ch = self.source_chapters[source_index]
                 block['source'] = {
-                    'title': ch['title'],
+                    'display_path': ch['display_path'],
+                    'toc_path': ch['toc_path'],
                     'text': ch['full_text'] if target_index is None else None,
                     'index': ch['index'],
-                    'path': ch['path'],
-                    'toc_title': ch['toc_title'],
                 }
 
             if target_index is not None:
                 ch = self.target_chapters[target_index]
                 block['target'] = {
-                    'title': ch['title'],
+                    'display_path': ch['display_path'],
+                    'toc_path': ch['toc_path'],
                     'text': ch['full_text'] if source_index is None else None,
                     'index': ch['index'],
-                    'path': ch['path'],
-                    'toc_title': ch['toc_title'],
                 }
 
             output.append(block)

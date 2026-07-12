@@ -21,7 +21,8 @@ class ChapterMapper:
     def _chapter_title(self, chapters, idx):
         if idx < 0 or idx >= len(chapters):
             return "???"
-        return chapters[idx].get('toc_title', f'Ch.{idx}')
+        path = chapters[idx].get('toc_path') or [f'Ch.{idx}']
+        return path[-1]
 
     def _chapter_preview(self, chapters, idx):
         if idx < 0 or idx >= len(chapters):
@@ -39,11 +40,11 @@ class ChapterMapper:
         target_lines = []
         for i in range(max_len):
             if i < self.source_count:
-                source_lines.append(f"[{self.source[i]['index']}] {self.source[i]['toc_title']}")
+                source_lines.append(f"[{self.source[i]['index']}] {self.source[i]['toc_path'][-1]}")
             else:
                 source_lines.append("")
             if i < self.target_count:
-                target_lines.append(f"[{self.target[i]['index']}] {self.target[i]['toc_title']}")
+                target_lines.append(f"[{self.target[i]['index']}] {self.target[i]['toc_path'][-1]}")
             else:
                 target_lines.append("")
         col_width = max((len(s) for s in source_lines), default=30) + 4
@@ -255,7 +256,7 @@ class ChapterMapper:
 
     def run_auto(self, model, force_show: bool, threshold: float = 0.5):
         def chapter_signature(chapter):
-            title = chapter.get('toc_title', '')
+            title = chapter.get('toc_path', [''])[-1]
             full_text = chapter.get('full_text', '')
             if not full_text:
                 return title
