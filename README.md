@@ -110,8 +110,5 @@ The code is AI-assisted.
 
 ## Known issues
 
-- Chapter auto-match is unreliable
 - Footnotes, endnotes, bold, italics, etc styles are lost
-- Paragraphs are indistinguishable
-- Nested chapters are flatten
 - Some readers still display the table borders even thought they are transparent
