@@ -65,6 +65,9 @@ class ChapterAligner:
         src_flat = [s for para in src_paras for s in para]
         tgt_flat = [s for para in tgt_paras for s in para]
 
+        if not src_flat or not tgt_flat:
+            return [[{'source': source_text, 'target': target_text}]]
+
         src_bounds = [0] + list(accumulate(len(p) for p in src_paras))
 
         try:
@@ -141,7 +144,7 @@ class ChapterAligner:
                             alignment = future.result()
                         except Exception as e:
                             self.log.error(f"Error aligning chapter pair {idx}: {e}")
-                            alignment = [{'source': src_text, 'target': tgt_text}]
+                            alignment = [[{'source': src_text, 'target': tgt_text}]]
                         output[idx]['alignment'] = alignment
                         progress.update('aligning')
             else:

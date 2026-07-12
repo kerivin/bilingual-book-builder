@@ -50,6 +50,7 @@ class ChapterSplitter:
                 if not line:
                     continue
                 sentences = splitter.split(line)
+                sentences = [s.strip() for s in splitter.split(line) if s.strip()]
                 para_sentences.extend(sentences)
             if para_sentences:
                 paragraphs.append(para_sentences)
