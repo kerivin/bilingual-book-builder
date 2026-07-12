@@ -83,8 +83,10 @@ class ChapterAligner:
 
         para_segments: Dict[int, List[Dict[str, str]]] = {}
         for src_indices, tgt_indices in aligner.result:
-            src_seg = ' '.join(aligner.src_sents[i] for i in src_indices)
-            tgt_seg = ' '.join(aligner.tgt_sents[i] for i in tgt_indices)
+            if not src_indices or not tgt_indices:
+                continue
+            src_seg = '\n'.join(aligner.src_sents[i] for i in src_indices)
+            tgt_seg = '\n'.join(aligner.tgt_sents[i] for i in tgt_indices)
             para_idx = bisect_right(src_bounds, src_indices[0]) - 1
             para_segments.setdefault(para_idx, []).append({'source': src_seg, 'target': tgt_seg})
 

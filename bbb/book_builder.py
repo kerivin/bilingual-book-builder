@@ -254,7 +254,9 @@ class BookBuilder:
                 if source_info is not None and target_info is not None:
                     source_title = source_info.get('title', 'Source')
                     target_title = target_info.get('title', 'Target')
-                    self.log.info(f"Building {source_title} - {target_title}...")
+                    source_toc_title = source_info.get('toc_title', source_title.replace('\n', ' '))
+                    target_toc_title = target_info.get('toc_title', target_title.replace('\n', ' '))
+                    self.log.info(f"Building {source_toc_title} ─ {target_toc_title}...")
 
                     header_row = f'<tr class="title-row"><td class="bilingual-left"><h2 class="bilingual-heading">{source_title}</h2></td><td class="bilingual-right"><h2 class="bilingual-heading">{target_title}</h2></td></tr>'
                     body_html = self._build_two_column_html(alignment, header_row)
@@ -266,24 +268,24 @@ class BookBuilder:
 
                 elif source_info is not None:
                     title = source_info.get('title', f'Chapter {block_idx}')
-                    self.log.info(f"Building source {title}...")
+                    toc_title = source_info.get('toc_title', title.replace('\n', ' '))
+                    self.log.info(f"Building source {toc_title}...")
 
                     body = self._text_to_paragraphs(source_info.get('text', ''))
                     item = self._create_xhtml_item(new_book, file_name, title, f'<div class="bilingual-source-only">{body}</div>', css_links, uid)
                     new_spine_ids.append(item.get_id())
 
-                    toc_title = source_info.get('toc_title', title.replace('\n', ' '))
                     toc_links.append(epub.Link(item.file_name, title, item.get_id()))
 
                 elif target_info is not None:
                     title = target_info.get('title', f'Chapter {block_idx}')
-                    self.log.info(f"Building target {title}...")
+                    toc_title = target_info.get('toc_title', title.replace('\n', ' '))
+                    self.log.info(f"Building target {toc_title}...")
 
                     body = self._text_to_paragraphs(target_info.get('text', ''))
                     item = self._create_xhtml_item(new_book, file_name, title, f'<div class="bilingual-target-only">{body}</div>', css_links, uid)
                     new_spine_ids.append(item.get_id())
 
-                    toc_title = target_info.get('toc_title', title.replace('\n', ' '))
                     toc_links.append(epub.Link(item.file_name, toc_title, item.get_id()))
 
                 progress.update('building')
