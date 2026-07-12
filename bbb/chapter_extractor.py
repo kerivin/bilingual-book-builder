@@ -328,7 +328,7 @@ class ChapterExtractor:
             seen_targets.add(target_key)
             toc_entries.append({
                 "label": item.label,
-                "toc_path_tuple": path,
+                "toc_path": path,
                 "spine_index": idx,
                 "anchor": anchor,
                 "full_href": self._spine_full_hrefs[idx],
@@ -350,7 +350,7 @@ class ChapterExtractor:
             else:
                 root = soup.body if soup.body else soup
                 heading_text = self._extract_heading_with_newlines(root)
-            path_display_titles[entry["toc_path_tuple"]] = heading_text if heading_text else entry["label"]
+            path_display_titles[entry["toc_path"]] = heading_text if heading_text else entry["label"]
 
         grouped: Dict[int, List[dict]] = {}
         order = []
@@ -400,7 +400,7 @@ class ChapterExtractor:
                 if len(text) < self.min_chars:
                     continue
 
-                toc_path = list(entry["toc_path_tuple"])
+                toc_path = list(entry["toc_path"])
                 display_path = [path_display_titles.get(tuple(toc_path[:i+1]), toc_path[i])
                                 for i in range(len(toc_path))]
 
