@@ -92,7 +92,6 @@ class BookBuilder:
                 except TypeError:
                     new_book.add_author(creator[0])
                     authors += f"{creator[0]}, "
-
             self.log.info(f"New book authors: {authors}")
 
         set_authors_from(self.source_book)
@@ -101,7 +100,6 @@ class BookBuilder:
         tgt_langs = get_metadata(self.target_book, 'language')
         if tgt_langs:
             new_book.set_language(tgt_langs[0])
-
         for lang in get_metadata(self.source_book, 'language'):
             if lang not in get_metadata(self.target_book, 'language'):
                 new_book.add_metadata('DC', 'language', lang)
@@ -141,7 +139,6 @@ class BookBuilder:
         for entry in flat_entries:
             path = entry['path']
             link = epub.Link(entry['file_name'], entry['toc_title'], entry['uid'])
-
             node = tree
             for i, part in enumerate(path):
                 if part not in node:
@@ -169,10 +166,10 @@ class BookBuilder:
 
         return build(tree)
 
-    def _create_xhtml_item(self, book: epub.EpubBook, file_name: str, title: str, body_html: str, css_links: List[str], uid: Optional[str] = None):
+    def _create_xhtml_item(self, book: epub.EpubBook, file_name: str, title: str,
+                           body_html: str, css_links: List[str], uid: Optional[str] = None):
         if uid is None:
             uid = f"chap_{uuid.uuid4().hex[:8]}"
-        
         item = epub.EpubHtml(
             uid=uid,
             file_name=file_name,
@@ -180,10 +177,8 @@ class BookBuilder:
         )
         item.title = title
         item.set_content(body_html)
-
         for css_path in css_links:
             item.add_link(href=css_path, rel='stylesheet', type='text/css')
-        
         book.add_item(item)
         return item
 
@@ -195,11 +190,11 @@ class BookBuilder:
             f'<p>{p.replace("\n", "<br/>\n")}</p>' for p in paragraphs
         )
 
-    def _build_two_column_html(self, aligned_paras: List[List[Dict[str, str]]], header_row: str = "") -> str:
+    def _build_two_column_html(self, aligned_paras: List[List[Dict[str, str]]],
+                               header_row: str = "") -> str:
         rows = []
         if header_row:
             rows.append(header_row)
-
         for para in aligned_paras:
             for i, seg in enumerate(para):
                 row_class = 'class="first-sentence"' if i == 0 else ''
@@ -213,6 +208,85 @@ class BookBuilder:
                 )
         return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
 
+    def _make_heading_html(self, path: List[str], prev_path: List[str],
+                           max_depth: int) -> str:
+        common = 0
+        for a, b in zip(path, prev_path):
+            if a == b:
+                common += 1
+            else:
+                break
+
+        visible = path[common:]
+        if not visible:
+            visible = path
+
+        lines = []
+        for i, label in enumerate(visible):
+            depth = common + i + 1
+            level = min(depth, 6)  # h1..h6
+            escaped = html.escape(label)
+            lines.append(f'<h{level} class="bilingual-heading">{escaped}</h{level}>')
+
+        return '\n'.join(lines)
+
+    def _build_chapter(self, source_info: Optional[Dict[str, Any]],
+                       target_info: Optional[Dict[str, Any]],
+                       alignment: List[List[Dict[str, str]]],
+                       prev_source_path: List[str],
+                       prev_target_path: List[str],
+                       max_depth: int) -> Dict[str, Any]:
+
+        if source_info and target_info:
+            src_path = source_info.get('path', [source_info.get('title', '')])
+            tgt_path = target_info.get('path', [target_info.get('title', '')])
+
+            src_heading = self._make_heading_html(src_path, prev_source_path, max_depth)
+            tgt_heading = self._make_heading_html(tgt_path, prev_target_path, max_depth)
+
+            header_row = (
+                f'<tr class="title-row">'
+                f'<td class="bilingual-left">{src_heading}</td>'
+                f'<td class="bilingual-right">{tgt_heading}</td>'
+                f'</tr>'
+            )
+            body_html = self._build_two_column_html(alignment, header_row)
+
+            flat_title = source_info['title'] + ' / ' + target_info['title']
+            toc_title = target_info.get('toc_title') or target_info['title'].replace('\n', ' ')
+            toc_path = tgt_path
+
+        elif source_info and not target_info:
+            src_path = source_info.get('path', [source_info.get('title', '')])
+            heading = self._make_heading_html(src_path, prev_source_path, max_depth)
+            body = self._text_to_paragraphs(source_info.get('text', ''))
+            body_html = f'<div class="bilingual-source-only">\n{heading}\n{body}\n</div>'
+
+            flat_title = source_info['title']
+            toc_title = source_info.get('toc_title') or source_info['title'].replace('\n', ' ')
+            toc_path = src_path
+
+        elif target_info and not source_info:
+            tgt_path = target_info.get('path', [target_info.get('title', '')])
+            heading = self._make_heading_html(tgt_path, prev_target_path, max_depth)
+            body = self._text_to_paragraphs(target_info.get('text', ''))
+            body_html = f'<div class="bilingual-target-only">\n{heading}\n{body}\n</div>'
+
+            flat_title = target_info['title']
+            toc_title = target_info.get('toc_title') or target_info['title'].replace('\n', ' ')
+            toc_path = tgt_path
+
+        else:
+            body_html = flat_title = toc_title = ''
+            toc_path = []
+
+        return {
+            'body_html': body_html,
+            'flat_title': flat_title,
+            'toc_title': toc_title,
+            'toc_path': toc_path,
+        }
+
     def run(self) -> epub.EpubBook | None:
         self.source_book = epub.read_epub(self.source_path)
         if not self.source_book:
@@ -224,7 +298,6 @@ class BookBuilder:
             return None
 
         new_book = epub.EpubBook()
-
         self._copy_metadata(new_book)
         self._copy_cover(new_book)
         css_links = self._copy_styles(new_book)
@@ -269,75 +342,53 @@ class BookBuilder:
         new_book.add_item(bilingual_css)
         css_links.append(bilingual_css.file_name)
 
+        max_depth = 0
+        for block in self.blocks:
+            for info in (block.get('source'), block.get('target')):
+                if info:
+                    max_depth = max(max_depth, len(info.get('path', [])))
+        max_depth = max(max_depth, 1)
+
         new_spine_ids = []
         toc_entries = []
+
+        last_source_path: List[str] = []
+        last_target_path: List[str] = []
 
         with progress.phase('building', len(self.blocks), "Building chapters"):
             for block_idx, block in enumerate(self.blocks):
                 source_info = block.get('source')
                 target_info = block.get('target')
-
                 if source_info is None and target_info is None:
                     continue
 
                 alignment = block.get('alignment') or []
+
+                ch = self._build_chapter(
+                    source_info, target_info, alignment,
+                    prev_source_path=last_source_path,
+                    prev_target_path=last_target_path,
+                    max_depth=max_depth,
+                )
+
+                if source_info:
+                    last_source_path = source_info.get('path', [])
+                if target_info:
+                    last_target_path = target_info.get('path', [])
+
                 file_name = f"{base_dir}chap_{block_idx:03d}.xhtml"
                 uid = f"chap_{block_idx:03d}"
-
-                if source_info is not None and target_info is not None:
-                    source_title = source_info.get('title', 'Source')
-                    target_title = target_info.get('title', 'Target')
-
-                    source_toc_title = source_info.get('toc_title', source_title.replace('\n', ' '))
-                    target_toc_title = target_info.get('toc_title', target_title.replace('\n', ' '))
-                    self.log.info(f"Building {source_toc_title} ─ {target_toc_title}...")
-
-                    header_row = f'<tr class="title-row"><td class="bilingual-left"><h2 class="bilingual-heading">{source_title}</h2></td><td class="bilingual-right"><h2 class="bilingual-heading">{target_title}</h2></td></tr>'
-                    body_html = self._build_two_column_html(alignment, header_row)
-                    item = self._create_xhtml_item(new_book, file_name, f"{source_title} / {target_title}", body_html, css_links, uid)
-                    new_spine_ids.append(item.get_id())
-
-                    toc_path = target_info.get('path', [target_toc_title])
-                    toc_entries.append({
-                        'file_name': item.file_name,
-                        'uid': item.get_id(),
-                        'toc_title': target_toc_title,
-                        'path': toc_path,
-                    })
-
-                elif source_info is not None:
-                    title = source_info.get('title', f'Chapter {block_idx}')
-                    toc_title = source_info.get('toc_title', title.replace('\n', ' '))
-                    self.log.info(f"Building source {toc_title}...")
-
-                    body = self._text_to_paragraphs(source_info.get('text', ''))
-                    item = self._create_xhtml_item(new_book, file_name, title, f'<div class="bilingual-source-only">{body}</div>', css_links, uid)
-                    new_spine_ids.append(item.get_id())
-
-                    toc_path = source_info.get('path', [toc_title])
-                    toc_entries.append({
-                        'file_name': item.file_name,
-                        'uid': item.get_id(),
-                        'toc_title': toc_title,
-                        'path': toc_path,
-                    })
-
-                elif target_info is not None:
-                    title = target_info.get('title', f'Chapter {block_idx}')
-                    toc_title = target_info.get('toc_title', title.replace('\n', ' '))
-                    self.log.info(f"Building target {toc_title}...")
-
-                    body = self._text_to_paragraphs(target_info.get('text', ''))
-                    item = self._create_xhtml_item(new_book, file_name, title, f'<div class="bilingual-target-only">{body}</div>', css_links, uid)
-                    new_spine_ids.append(item.get_id())
-
-                    toc_path = target_info.get('path', [toc_title])
-                    toc_entries.append({
-                        'file_name': item.file_name,
-                        'uid': item.get_id(),
-                        'toc_title': toc_title,
-                        'path': toc_path,
-                    })
+                item = self._create_xhtml_item(
+                    new_book, file_name, ch['flat_title'],
+                    ch['body_html'], css_links, uid
+                )
+                new_spine_ids.append(item.get_id())
+                toc_entries.append({
+                    'file_name': item.file_name,
+                    'uid': item.get_id(),
+                    'toc_title': ch['toc_title'],
+                    'path': ch['toc_path'],
+                })
 
                 progress.update('building')
 

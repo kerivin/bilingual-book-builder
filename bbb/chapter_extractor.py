@@ -46,7 +46,7 @@ class ChapterExtractor:
                 self.log.info(f"{ch['toc_title']}\n{ch['preview']}")
                 utils.print_horizontal_line(self.log.info)
 
-    def _create_chapter(self, title: str, toc_title: str, path: str, full_text: str, item_id: Optional[str] = None) -> Dict[str, Any]:
+    def _create_chapter(self, title: str, toc_title: str, path, full_text: str, item_id: Optional[str] = None) -> Dict[str, Any]:
         return {
             "title": re.sub(r'\n\s*\n+', '\n', title).strip(),
             "toc_title": toc_title,
@@ -162,7 +162,70 @@ class ChapterExtractor:
         cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
         return cleaned or raw
 
-    def _extract_text(self, soup: BeautifulSoup, anchor_elements: Optional[Dict[str, Any]] = None):
+    def _extract_sections(self, soup: BeautifulSoup,
+                        sections: List[Tuple[Tuple[str, ...], Any]]) -> Dict[Tuple[str, ...], str]:
+        self._clean_soup(soup)
+        root = soup.body if soup.body else soup
+
+        elem_to_path = {}
+        for path, elem in sections:
+            elem_to_path[id(elem)] = path
+
+        BR_PLACEHOLDER = '__BR__'
+        PARA_PLACEHOLDER = '__PARA__'
+        for br in root.find_all('br'):
+            br.replace_with(BR_PLACEHOLDER)
+
+        section_texts: Dict[Tuple[str, ...], List[str]] = {
+            path: [] for path, _ in sections
+        }
+        stack: List[Tuple[str, ...]] = []
+
+        def walk(node):
+            enter_anchor = False
+            if hasattr(node, 'name') and id(node) in elem_to_path:
+                sec_path = elem_to_path[id(node)]
+                stack.append(sec_path)
+                enter_anchor = True
+
+            if isinstance(node, NavigableString):
+                text = str(node)
+                if not stack:
+                    return
+                parent = node.parent
+                if (parent is not None
+                        and id(parent) in elem_to_path
+                        and stack[-1] == elem_to_path[id(parent)]):
+                    return
+                section_texts[stack[-1]].append(text)
+                return
+
+            if not hasattr(node, 'name'):
+                return
+
+            if node.name in BLOCK_TAGS and not enter_anchor:
+                if stack:
+                    section_texts[stack[-1]].append(PARA_PLACEHOLDER)
+
+            for child in node.children:
+                walk(child)
+
+            if enter_anchor:
+                stack.pop()
+
+        walk(root)
+
+        result = {}
+        for path, _ in sections:
+            raw = ''.join(section_texts[path])
+            raw = raw.replace(BR_PLACEHOLDER, '\n').replace(PARA_PLACEHOLDER, '\n\n')
+            text = re.sub(r'[^\S\n]+', ' ', raw)
+            text = re.sub(r' *\n *', '\n', text)
+            text = re.sub(r'\n{3,}', '\n\n', text)
+            result[path] = text.strip()
+        return result
+
+    def _extract_text(self, soup: BeautifulSoup, anchor_elements: Optional[Dict[str, Any]] = None, root_id: Optional[str] = None):
         self._clean_soup(soup)
 
         BR_PLACEHOLDER = '__BR__'
@@ -176,6 +239,11 @@ class ChapterExtractor:
         if anchor_elements:
             anchor_texts = {aid: [] for aid in anchor_elements}
             current_anchor = None
+            if root_id:
+                anchor_texts[root_id] = []
+                current_anchor = root_id
+            else:
+                current_anchor = None
 
             def walk(node):
                 nonlocal current_anchor
@@ -186,7 +254,11 @@ class ChapterExtractor:
                     return
                 if not hasattr(node, 'name'):
                     return
-                anchor_id = node.get('id') if node.get('id') in anchor_elements else None
+                anchor_id = None
+                if node.get('id') in anchor_elements:
+                    anchor_id = node.get('id')
+                elif root_id and node is anchor_elements.get(root_id):
+                    anchor_id = root_id
                 if anchor_id is not None:
                     current_anchor = anchor_id
                     if node.name in HEADING_TAGS:
@@ -254,9 +326,8 @@ class ChapterExtractor:
                     yield from collect_with_path(node.children, current_path)
 
         skip_spine = self._find_guide_skip_indices()
-        entries = []
+        toc_entries = []
         seen_targets = set()
-
         for item, path in collect_with_path(toc.get_toc_items()):
             idx = self._resolve_toc_target_to_spine_index(item.target)
             if idx is None or idx in skip_spine:
@@ -266,19 +337,19 @@ class ChapterExtractor:
             if target_key in seen_targets:
                 continue
             seen_targets.add(target_key)
-            entries.append({
+            toc_entries.append({
                 "label": item.label,
                 "path": list(path),
                 "spine_index": idx,
                 "anchor": anchor,
                 "full_href": self._spine_full_hrefs[idx],
             })
-        if not entries:
+        if not toc_entries:
             return []
 
-        grouped = {}
+        grouped: Dict[int, List[dict]] = {}
         order = []
-        for e in entries:
+        for e in toc_entries:
             idx = e["spine_index"]
             if idx not in grouped:
                 grouped[idx] = []
@@ -286,6 +357,8 @@ class ChapterExtractor:
             grouped[idx].append(e)
 
         chapters = []
+        ROOT_ID = "__root__"
+
         for idx in order:
             file_entries = grouped[idx]
             full_href = self._spine_full_hrefs[idx]
@@ -293,60 +366,43 @@ class ChapterExtractor:
             if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
 
-            if len(file_entries) == 1 and file_entries[0]["anchor"] is None:
-                text = self._extract_text(soup)
-                if len(text) >= self.min_chars:
-                    heading = self._get_first_heading(full_href)
-                    title = heading if heading else file_entries[0]["label"]
-                    chapters.append(self._create_chapter(
-                        title=title,
-                        toc_title=file_entries[0]["label"],
-                        full_text=text,
-                        item_id=self._spine_idrefs[idx],
-                        path=file_entries[0]["path"],
-                    ))
-                continue
-
-            body = soup.body if soup.body else soup
+            parent_entry = None
+            child_entries = []
+            for entry in file_entries:
+                if entry["anchor"] is None:
+                    parent_entry = entry
+                else:
+                    child_entries.append(entry)
 
             anchor_elements = {}
-            for entry in file_entries:
-                if entry["anchor"]:
-                    elem = body.find(id=entry["anchor"])
-                    if elem is not None:
-                        anchor_elements[entry["anchor"]] = elem
+            for entry in child_entries:
+                elem = soup.find(id=entry["anchor"])
+                if elem is not None:
+                    anchor_elements[entry["anchor"]] = elem
 
-            if not anchor_elements:
-                entry = file_entries[0]
-                text = self._extract_text(soup)
-                if len(text) >= self.min_chars:
-                    heading = self._get_first_heading(full_href)
-                    title = heading if heading else entry["label"]
-                    chapters.append(self._create_chapter(
-                        title=title,
-                        toc_title=entry["label"],
-                        full_text=text,
-                        item_id=self._spine_idrefs[idx],
-                        path=entry["path"],
-                    ))
-                continue
+            root_id = None
+            if parent_entry is not None:
+                root_id = ROOT_ID
+                first_heading = soup.find(HEADING_TAGS)
+                root_elem = first_heading if first_heading else (soup.body if soup.body else soup)
+                anchor_elements[ROOT_ID] = root_elem
 
-            anchor_texts = self._extract_text(soup, anchor_elements)
+            section_texts = self._extract_text(soup, anchor_elements, root_id=root_id)
+
             for entry in file_entries:
-                anchor = entry["anchor"]
-                if not anchor or anchor not in anchor_texts:
+                if entry["anchor"] is not None:
+                    sec_id = entry["anchor"]
+                else:
+                    sec_id = ROOT_ID
+                text = section_texts.get(sec_id, "")
+                if len(text) < self.min_chars:
                     continue
-                section_text = anchor_texts[anchor]
-                if len(section_text) < self.min_chars:
-                    continue
-                heading = self._get_first_heading(full_href)
-                title = entry["label"] if entry["label"] else heading
                 chapters.append(self._create_chapter(
-                    title=title,
+                    title="\n".join(entry["path"]),
                     toc_title=entry["label"],
-                    full_text=section_text,
-                    item_id=self._spine_idrefs[idx],
                     path=entry["path"],
+                    full_text=text,
+                    item_id=self._spine_idrefs[idx],
                 ))
 
         for i, ch in enumerate(chapters):
@@ -401,7 +457,7 @@ class ChapterExtractor:
             body = all_text[start:end].strip()
             if len(body) < self.min_chars:
                 continue
-            chapters.append(self._create_chapter(title, title, body))
+            chapters.append(self._create_chapter(title, title, [title], body))
 
         for i, ch in enumerate(chapters):
             ch["index"] = i
