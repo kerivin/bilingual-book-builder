@@ -112,3 +112,4 @@ The code is AI-assisted.
 
 - Footnotes, endnotes, bold, italics, etc styles are lost
 - Some readers still display the table borders even thought they are transparent
+- Should I clean titles not tagges as titles leaking into the chapter body?
