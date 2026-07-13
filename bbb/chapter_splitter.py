@@ -6,7 +6,7 @@ from wtpsplit import SaT
 
 
 class SplitterWrapper:
-    def split(self, text: str) -> list[str]:
+    def split(self, text: str) -> list[list[str]]:
         return []
 
 
@@ -14,8 +14,23 @@ class SimpleWrapper(SplitterWrapper):
     def __init__(self, language: Language):
         self.splitter = SentenceSplitter(language.iso_code_639_1.name.lower())
 
-    def split(self, text):
-        return self.splitter.split(text)
+    def split(self, text) -> list[list[str]]:
+        paragraphs = []
+        for para in text.split('\n\n'):
+            para = para.strip()
+            if not para:
+                continue
+            para_sentences = []
+            for line in para.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                sentences = self.splitter.split(line)
+                sentences = [s.strip() for s in self.splitter.split(line) if s.strip()]
+                para_sentences.extend(sentences)
+            if para_sentences:
+                paragraphs.append(para_sentences)
+        return paragraphs
 
 
 class SatWrapper(SplitterWrapper):
@@ -26,8 +41,23 @@ class SatWrapper(SplitterWrapper):
             style_or_domain='ud' if language else None,
         )
 
-    def split(self, text):
-        return self.splitter.split(text)
+    def split(self, text) -> list[list[str]]:
+        paragraphs = []
+        for para in text.split('\n\n'):
+            para = para.strip()
+            if not para:
+                continue
+            lines = [s for l in para.split('\n') if (s := l.strip())]
+            raw = self.splitter.split(lines)
+            para_sentences = [
+                sent.strip()
+                for line_sents in raw
+                for sent in line_sents
+                if sent.strip()
+            ]
+            if para_sentences:
+                paragraphs.append(para_sentences)
+        return paragraphs
 
 
 class ChapterSplitter:
@@ -39,22 +69,7 @@ class ChapterSplitter:
 
     def run(self, text: str, language: Language) -> list[list[str]]:
         splitter = self._get_model(language)
-        paragraphs = []
-        for para in text.split('\n\n'):
-            para = para.strip()
-            if not para:
-                continue
-            para_sentences = []
-            for line in para.split('\n'):
-                line = line.strip()
-                if not line:
-                    continue
-                sentences = splitter.split(line)
-                sentences = [s.strip() for s in splitter.split(line) if s.strip()]
-                para_sentences.extend(sentences)
-            if para_sentences:
-                paragraphs.append(para_sentences)
-        return paragraphs
+        return splitter.split(text)
 
     def _get_model(self, language: Language) -> SplitterWrapper:
         if language in self.models:
