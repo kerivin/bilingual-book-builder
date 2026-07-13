@@ -48,7 +48,7 @@ class SatWrapper(SplitterWrapper):
             if not para:
                 continue
             lines = [s for l in para.split('\n') if (s := l.strip())]
-            para_sentences = self.splitter.split(lines)
+            para_sentences = self.splitter.split(lines, do_paragraph_segmentation=False)
             para_sentences = [s for sentences in para_sentences for sent in sentences if (s := sent.strip())]
             if para_sentences:
                 paragraphs.append(para_sentences)
