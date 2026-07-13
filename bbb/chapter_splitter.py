@@ -26,7 +26,7 @@ class SimpleWrapper(SplitterWrapper):
                 if not line:
                     continue
                 sentences = self.splitter.split(line)
-                sentences = [s.strip() for s in self.splitter.split(line) if s.strip()]
+                sentences = [s.strip() for s in sentences if s.strip()]
                 para_sentences.extend(sentences)
             if para_sentences:
                 paragraphs.append(para_sentences)
@@ -48,13 +48,8 @@ class SatWrapper(SplitterWrapper):
             if not para:
                 continue
             lines = [s for l in para.split('\n') if (s := l.strip())]
-            raw = self.splitter.split(lines)
-            para_sentences = [
-                sent.strip()
-                for line_sents in raw
-                for sent in line_sents
-                if sent.strip()
-            ]
+            para_sentences = self.splitter.split(lines)
+            para_sentences = [s for sentences in para_sentences for sent in sentences if (s := sent.strip())]
             if para_sentences:
                 paragraphs.append(para_sentences)
         return paragraphs
