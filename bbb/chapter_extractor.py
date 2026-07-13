@@ -171,7 +171,7 @@ class ChapterExtractor:
 
     @staticmethod
     def _is_simple_number_text(text: str) -> bool:
-        stripped = text.strip().strip('.,;:!?()[]{}"\'-–—')
+        stripped = text.strip().strip('()[]{}"\'-–—')
         return bool(stripped) and bool(re.fullmatch(r'[0-9IVXLCDMivxlcdm]+', stripped))
 
     def _is_numeric_roman_block(self, elem) -> bool:
