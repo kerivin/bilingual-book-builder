@@ -9,11 +9,15 @@ from bbb import progress
 
 
 class BookBuilder:
-    def __init__(self, source_path: str, target_path: str, blocks: List[Dict[str, Any]], copy_target_cover = False):
+    def __init__(self, source_path: str, target_path: str, blocks: List[Dict[str, Any]],
+                 copy_target_cover=False,
+                 source_footnotes=None, target_footnotes=None):
         self.source_path = source_path
         self.target_path = target_path
         self.blocks = blocks
         self.copy_target_cover = copy_target_cover
+        self.source_footnotes = source_footnotes or {}
+        self.target_footnotes = target_footnotes or {}
         self.log = logging.getLogger(__name__)
 
     def _inline_text(self, text: str) -> str:
@@ -192,16 +196,43 @@ class BookBuilder:
             f'<p>{p.replace("\n", "<br/>\n")}</p>' for p in paragraphs
         )
 
-    def _build_two_column_html(self, aligned_paras: List[List[Dict[str, str]]],
-                               header_row: str = "") -> str:
+    def _apply_footnote_links(self, text, token_occurrences, footnote_bodies, used_numbers):
+        if not token_occurrences:
+            return text, []
+
+        token_to_html = {}
+        fn_items = []
+        for occ in token_occurrences:
+            token = occ['token']
+            if token in token_to_html:
+                continue
+            num = used_numbers[0] + 1
+            used_numbers[0] = num
+            target_id = occ['target_id']
+            ref_id = f'fnref_{num}'
+            fn_id = f'fn_{num}'
+            link_html = f'<sup class="footnote-ref" id="{ref_id}"><a href="#{fn_id}">[{num}]</a></sup>'
+            token_to_html[token] = link_html
+            body = footnote_bodies.get(target_id, '')
+            fn_items.append({'id': fn_id, 'ref_id': ref_id, 'body': body})
+
+        for token, html_tag in token_to_html.items():
+            text = text.replace(token, html_tag)
+        return text, fn_items
+
+    def _build_two_column_html(self, aligned_paras, header_row: str = "",
+                               already_escaped: bool = False) -> str:
         rows = []
         if header_row:
             rows.append(header_row)
         for para in aligned_paras:
             for i, seg in enumerate(para):
                 row_class = 'class="first-sentence"' if i == 0 else ''
-                src_html = self._inline_text(seg['source'])
-                tgt_html = self._inline_text(seg['target'])
+                src_html = seg['source']
+                tgt_html = seg['target']
+                if not already_escaped:
+                    src_html = self._inline_text(src_html)
+                    tgt_html = self._inline_text(tgt_html)
                 rows.append(
                     f'<tr {row_class}>'
                     f'<td class="bilingual-left">{src_html}</td>'
@@ -252,18 +283,57 @@ class BookBuilder:
                 f'<td class="bilingual-right">{tgt_heading}</td>'
                 f'</tr>'
             )
-            body_html = self._build_two_column_html(alignment, header_row)
+
+            all_footnote_items = []
+            used_numbers = [0]
+
+            processed_paras = []
+            for para in alignment:
+                new_para = []
+                for seg in para:
+                    src_text = seg['source']
+                    tgt_text = seg['target']
+                    src_occurrences = seg.get('source_footnote_occurrences', [])
+                    tgt_occurrences = seg.get('target_footnote_occurrences', [])
+
+                    src_inlined = self._inline_text(src_text)
+                    tgt_inlined = self._inline_text(tgt_text)
+
+                    src_html, src_fns = self._apply_footnote_links(
+                        src_inlined, src_occurrences, self.source_footnotes, used_numbers)
+                    tgt_html, tgt_fns = self._apply_footnote_links(
+                        tgt_inlined, tgt_occurrences, self.target_footnotes, used_numbers)
+
+                    all_footnote_items.extend(src_fns)
+                    all_footnote_items.extend(tgt_fns)
+
+                    new_para.append({'source': src_html, 'target': tgt_html})
+                processed_paras.append(new_para)
+
+            body_html = self._build_two_column_html(processed_paras, header_row, already_escaped=True)
+
+            if all_footnote_items:
+                fn_list_items = ''.join(
+                    f'<li id="{fn["id"]}">{fn["body"]} '
+                    f'<a href="#{fn["ref_id"]}" class="footnote-backref">↩</a></li>'
+                    for fn in all_footnote_items
+                )
+                body_html += (
+                    '<hr class="footnote-separator"/>'
+                    '<div class="footnotes"><ol>' + fn_list_items + '</ol></div>'
+                )
 
             flat_title = src_display[-1] + ' / ' + tgt_display[-1]
             toc_path = tgt_toc
 
         elif source_info and not target_info:
+            # source-only chapter – no footnotes handling for simplicity,
+            # but could be added similarly.
             src_display = source_info.get('display_path', [])
             src_toc = source_info.get('toc_path', [])
             heading = self._make_heading_html(src_display, prev_source_path)
             body = self._text_to_paragraphs(source_info.get('full_text', ''))
             body_html = f'<div class="bilingual-source-only">\n{heading}\n{body}\n</div>'
-
             flat_title = src_display[-1] if src_display else ''
             toc_path = src_toc
 
@@ -273,7 +343,6 @@ class BookBuilder:
             heading = self._make_heading_html(tgt_display, prev_target_path)
             body = self._text_to_paragraphs(target_info.get('full_text', ''))
             body_html = f'<div class="bilingual-target-only">\n{heading}\n{body}\n</div>'
-
             flat_title = tgt_display[-1] if tgt_display else ''
             toc_path = tgt_toc
 
@@ -336,6 +405,22 @@ class BookBuilder:
                 border-style: none !important;
                 border-width: 0 !important;
                 border-color: transparent !important;
+            }
+            .footnote-ref {
+                font-size: 0.75em;
+                vertical-align: super;
+                line-height: 0;
+            }
+            .footnote-separator {
+                width: 30%;
+                margin: 2em auto 1em;
+            }
+            .footnotes {
+                font-size: 0.9em;
+            }
+            .footnote-backref {
+                font-size: 0.8em;
+                text-decoration: none;
             }
             """
         )

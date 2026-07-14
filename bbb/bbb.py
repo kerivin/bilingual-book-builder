@@ -52,15 +52,21 @@ class BBB:
         return SentenceTransformer(self.align_model)
 
     def run(self):
-        source_chapters = ChapterExtractor(
+        source_extractor = ChapterExtractor(
             path = self.source_path,
-            force_show = self.only == 'extract'
-        ).get_chapter_list()
+            force_show = self.only == 'extract',
+            fn_prefix = 'S_',
+        )
+        source_chapters = source_extractor.get_chapter_list()
+        source_footnotes = source_extractor.footnotes
 
-        target_chapters = ChapterExtractor(
+        target_extractor = ChapterExtractor(
             path = self.target_path,
-            force_show = self.only == 'extract'
-        ).get_chapter_list()
+            force_show = self.only == 'extract',
+            fn_prefix = 'T_',
+        )
+        target_chapters = target_extractor.get_chapter_list()
+        target_footnotes = target_extractor.footnotes
 
         if not source_chapters or not target_chapters:
             self.log.error("No chapters extracted from one or both books.")
@@ -117,7 +123,9 @@ class BBB:
             source_path = self.source_path,
             target_path = self.target_path,
             blocks = aligned_chapters,
-            copy_target_cover = self.cover == 'target'
+            copy_target_cover = self.cover == 'target',
+            source_footnotes = source_footnotes,
+            target_footnotes = target_footnotes
         ).run()
 
         if not new_book:
