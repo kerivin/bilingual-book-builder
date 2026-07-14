@@ -1,8 +1,10 @@
-# tests/conftest.py
 import io
 import pytest
-from ebooklib import epub
+from unittest.mock import patch, MagicMock
 from pyfakefs.fake_filesystem_unittest import Patcher
+from ebooklib import epub
+
+_original_read_epub = epub.read_epub
 
 def create_chapter_html(title, body, footnotes=None, extra_headings=None):
     h = f"<h1>{title}</h1>" if title else ""
@@ -62,13 +64,100 @@ def make_epub_bytes(chapters, title="Test Book", lang="en",
     epub.write_epub(buf, book)
     return buf.getvalue()
 
+
+class MockTocItem:
+    def __init__(self, label, target, children=None):
+        self.label = label
+        self.target = target
+        self.children = children or []
+
+class MockToc:
+    def __init__(self, items):
+        self._items = items
+    def get_toc_items(self):
+        return self._items
+
+def _convert_epub_toc(toc_list):
+    result = []
+    for item in toc_list:
+        if isinstance(item, epub.Link):
+            result.append(MockTocItem(item.title, item.href))
+        elif isinstance(item, tuple):
+            section, children = item
+            if isinstance(section, epub.Section):
+                child_items = _convert_epub_toc(children)
+                result.append(MockTocItem(section.title, section.href, child_items))
+    return result
+
+
+class MockDocument:
+    def __init__(self, path_or_bytes):
+        if isinstance(path_or_bytes, bytes):
+            self._book = _original_read_epub(io.BytesIO(path_or_bytes))
+        else:
+            raise ValueError("Only bytes accepted in tests")
+
+        self.container = MagicMock()
+        self.container.rootfile_path = "package.opf"
+
+        pkg = MagicMock()
+        md = MagicMock()
+        titles = self._book.get_metadata('DC', 'title')
+        md.title = titles[0][0] if titles else "Untitled"
+        pkg.metadata = md
+
+        manifest_items = [{'id': it.get_id(), 'href': it.file_name} for it in self._book.get_items()]
+        manifest = MagicMock()
+        manifest.items = manifest_items
+        pkg.manifest = manifest
+
+        # The spine after reading is a list of (idref, linear) tuples
+        spine_ids = getattr(self._book, 'spine', []) or []
+        spine_itemrefs = []
+        for entry in spine_ids:
+            if isinstance(entry, tuple):
+                idref = entry[0]
+            else:
+                idref = entry
+            spine_itemrefs.append({'idref': idref, 'linear': 'yes'})
+        spine = MagicMock()
+        spine.itemrefs = spine_itemrefs
+        pkg.spine = spine
+
+        if hasattr(self._book, 'guide') and self._book.guide:
+            pkg.guide = self._book.guide
+        else:
+            pkg.guide = []
+
+        self.package = pkg
+
+        if hasattr(self._book, 'toc') and self._book.toc:
+            toc_items = _convert_epub_toc(self._book.toc)
+            self.toc = MockToc(toc_items)
+        else:
+            self.toc = None
+
+    def get_file_by_path(self, href):
+        item = self._book.get_item_with_href(href)
+        class FakeFile:
+            def to_str(self):
+                return item.get_content().decode("utf-8")
+        if item:
+            return FakeFile()
+        raise KeyError(href)
+
+
+@pytest.fixture
+def patch_document():
+    with patch("bbb.extractor.Document", MockDocument):
+        yield
+
+@pytest.fixture
+def patch_read_epub():
+    with patch("bbb.book_builder.epub.read_epub", side_effect=_original_read_epub):
+        yield
+
 @pytest.fixture
 def fs():
     with Patcher() as patcher:
         yield patcher.fs
-
-def write_epub_to_fake(fs, epub_bytes, name="test.epub"):
-    fs.create_dir("/fake")
-    path = f"/fake/{name}"
-    fs.create_file(path, contents=epub_bytes)
-    return path

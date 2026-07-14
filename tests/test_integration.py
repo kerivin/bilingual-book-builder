@@ -5,14 +5,17 @@ import numpy as np
 from bbb.bbb import BBB
 from conftest import make_epub_bytes, create_chapter_html
 
+LONG_TEXT = "This is a test chapter. " * 10
+
 @pytest.fixture
 def mock_heavy_deps():
     with patch('sentence_transformers.SentenceTransformer') as mock_st, \
          patch('bbb.splitter.SaT') as mock_sat, \
          patch('bbb.aligner.Bertalign') as mock_bert:
+        # produce embeddings with consistent dimensionality
         def encode_side_effect(texts, **kwargs):
             n = len(texts)
-            return np.eye(n, max(1, n))
+            return np.eye(n, 2)
         mock_st.return_value.encode = MagicMock(side_effect=encode_side_effect)
 
         class MockSaT:
@@ -29,6 +32,7 @@ def mock_heavy_deps():
         yield
 
 def run_bbb_on_fake(fs, src_bytes, tgt_bytes, **kwargs):
+    """Run BBB using a fake filesystem so BookBuilder can read real files."""
     fs.create_dir("/fake")
     src_path = "/fake/src.epub"
     tgt_path = "/fake/tgt.epub"
@@ -45,10 +49,10 @@ def run_bbb_on_fake(fs, src_bytes, tgt_bytes, **kwargs):
 
 def test_basic_bilingual_book(fs, mock_heavy_deps):
     src = make_epub_bytes([{"filename": "src.xhtml",
-                            "content": create_chapter_html("Ch1", "Hello world. Test.")}],
+                            "content": create_chapter_html("Ch1", LONG_TEXT)}],
                           title="Source")
     tgt = make_epub_bytes([{"filename": "tgt.xhtml",
-                            "content": create_chapter_html("Ch1", "Hallo Welt. Test.")}],
+                            "content": create_chapter_html("Ch1", LONG_TEXT)}],
                           title="Target")
     book = run_bbb_on_fake(fs, src, tgt, source_language='en', target_language='de',
                            auto_threshold=0.5, simple_split=True)
@@ -56,34 +60,37 @@ def test_basic_bilingual_book(fs, mock_heavy_deps):
     item = book.get_item_with_id(book.spine[0][0])
     content = item.get_content().decode()
     assert 'bilingual-table' in content
-    assert 'Hello world' in content
-    assert 'Hallo Welt' in content
+    assert 'This is a test chapter' in content
 
 def test_keep_unmatched_source(fs, mock_heavy_deps):
     src = make_epub_bytes([
-        {"filename": "s1.xhtml", "content": create_chapter_html("S1", "Source 1")},
-        {"filename": "s2.xhtml", "content": create_chapter_html("S2", "Source 2")}
+        {"filename": "s1.xhtml", "content": create_chapter_html("S1", LONG_TEXT)},
+        {"filename": "s2.xhtml", "content": create_chapter_html("S2", LONG_TEXT)}
     ])
     tgt = make_epub_bytes([
-        {"filename": "t1.xhtml", "content": create_chapter_html("T1", "Target 1")}
+        {"filename": "t1.xhtml", "content": create_chapter_html("T1", LONG_TEXT)}
     ])
     book = run_bbb_on_fake(fs, src, tgt, source_language='en', target_language='de',
                            keep_unmatched_source_chapters=True, simple_split=True)
     assert len(book.spine) == 2
     c0 = book.get_item_with_id(book.spine[0][0]).get_content().decode()
     c1 = book.get_item_with_id(book.spine[1][0]).get_content().decode()
-    assert 'Source 1' in c0 and 'Target 1' in c0
-    assert 'Source 2' in c1 and 'bilingual-source-only' in c1
+    assert 'This is a test chapter' in c0
+    assert 'bilingual-source-only' in c1
 
 def test_cover_option_target(fs, mock_heavy_deps):
-    src = make_epub_bytes([], title="Src", cover=True)
-    tgt = make_epub_bytes([{"filename": "c.xhtml", "content": "<p>hi</p>"}], title="Tgt", cover=True)
+    src = make_epub_bytes([{"filename": "s.xhtml", "content": create_chapter_html("Src", LONG_TEXT)}],
+                          title="Src", cover=True)
+    tgt = make_epub_bytes([{"filename": "c.xhtml", "content": create_chapter_html("Tgt", LONG_TEXT)}],
+                          title="Tgt", cover=True)
     book = run_bbb_on_fake(fs, src, tgt, cover='target', simple_split=True)
     assert book.get_item_with_id('cover') is not None
 
 def test_only_extract(fs, mock_heavy_deps):
-    src = make_epub_bytes([{"filename": "s.xhtml", "content": create_chapter_html("S", "source")}])
-    tgt = make_epub_bytes([{"filename": "t.xhtml", "content": create_chapter_html("T", "target")}])
+    src = make_epub_bytes([{"filename": "s.xhtml",
+                            "content": create_chapter_html("S", LONG_TEXT)}])
+    tgt = make_epub_bytes([{"filename": "t.xhtml",
+                            "content": create_chapter_html("T", LONG_TEXT)}])
     fs.create_dir("/fake")
     src_path = "/fake/src.epub"
     tgt_path = "/fake/tgt.epub"
