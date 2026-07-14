@@ -139,7 +139,7 @@ class ChapterExtractor:
             for a_tag in body_soup.find_all('a', href=True):
                 href = a_tag['href'].strip()
                 if not href.lower().startswith(('http://', 'https://')):
-                    a_tag.unwrap()
+                    a_tag.decompose()
             footnote_bodies[fid] = str(body_soup)
 
         return footnote_bodies
