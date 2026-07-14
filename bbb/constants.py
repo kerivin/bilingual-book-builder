@@ -1,0 +1,2 @@
+SRC_FN_PREFIX = 'S_'
+TGT_FN_PREFIX = 'T_'

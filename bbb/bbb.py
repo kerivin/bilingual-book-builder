@@ -7,6 +7,10 @@ from bbb.chapter_extractor import ChapterExtractor
 from bbb.chapter_mapper import ChapterMapper
 from bbb.chapter_aligner import ChapterAligner
 from bbb.book_builder import BookBuilder
+from bbb.constants import SRC_FN_PREFIX, TGT_FN_PREFIX
+
+OnlyOption = Literal['extract', 'auto-match']
+CoverOption = Literal['source', 'target']
 
 class BBB:
     def __init__(self,
@@ -18,10 +22,10 @@ class BBB:
                 manual: bool = False,
                 threads: int = 1,
                 auto_threshold: float = 0.6,
-                only: str | None = None,
+                only: OnlyOption | None = None,
                 keep_unmatched_source_chapters = False,
                 keep_unmatched_target_chapters = False,
-                cover: Literal['source', 'target'] = 'source',
+                cover: CoverOption = 'source',
                 align_model = 'LaBSE',
                 split_model = 'sat-3l',
                 simple_split: bool = False,
@@ -55,14 +59,14 @@ class BBB:
         source_extractor = ChapterExtractor(
             path = self.source_path,
             force_show = self.only == 'extract',
-            fn_prefix = 'S_',
+            fn_prefix = SRC_FN_PREFIX,
         )
         source_chapters, source_footnotes = source_extractor.get_chapter_list()
 
         target_extractor = ChapterExtractor(
             path = self.target_path,
             force_show = self.only == 'extract',
-            fn_prefix = 'T_',
+            fn_prefix = TGT_FN_PREFIX,
         )
         target_chapters, target_footnotes = target_extractor.get_chapter_list()
 
@@ -123,7 +127,7 @@ class BBB:
             blocks = aligned_chapters,
             copy_target_cover = self.cover == 'target',
             source_footnotes = source_footnotes,
-            target_footnotes = target_footnotes
+            target_footnotes = target_footnotes,
         ).run()
 
         if not new_book:

@@ -3,6 +3,7 @@ import html
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
+from collections import OrderedDict
 
 from bs4 import BeautifulSoup, NavigableString, Comment
 from epub_utils import Document
@@ -17,6 +18,7 @@ TAG_BLACKLIST = {'script', 'style', 'img', 'figure', 'svg', 'canvas'}
 BR_PLACEHOLDER = '\uE000'
 TEXT_BR_PLACEHOLDER = '__BR__'
 PARA_PLACEHOLDER = '__PARA__'
+DEFAULT_ANCHOR_KEY = '__default__'
 
 
 def _normalize_text(raw):
@@ -341,72 +343,53 @@ class ChapterExtractor:
 
         root = soup.body if soup.body else soup
 
-        if anchor_elements:
-            anchor_texts = {aid: [] for aid in anchor_elements}
-            current_anchor = None
-            if root_id:
-                anchor_texts[root_id] = []
+        if not anchor_elements:
+            anchor_elements = {DEFAULT_ANCHOR_KEY: root}
+            if root_id is None:
+                root_id = DEFAULT_ANCHOR_KEY
+
+        anchor_texts = OrderedDict((aid, []) for aid in anchor_elements)
+        current_anchor = root_id if root_id in anchor_elements else None
+
+        def walk(node):
+            nonlocal current_anchor
+            if isinstance(node, NavigableString):
+                if current_anchor is not None:
+                    anchor_texts[current_anchor].append(str(node))
+                return
+            if not hasattr(node, 'name'):
+                return
+
+            anchor_id = node.get('id') if node.get('id') in anchor_elements else None
+            if anchor_id is not None:
+                current_anchor = anchor_id
+                if node.name in HEADINGISH_TAGS:
+                    return
+            elif root_id and node is anchor_elements.get(root_id):
                 current_anchor = root_id
-
-            def walk(node):
-                nonlocal current_anchor
-                if isinstance(node, NavigableString):
-                    if current_anchor is not None:
-                        anchor_texts[current_anchor].append(str(node))
-                    return
-                if not hasattr(node, 'name'):
+                if node.name in HEADINGISH_TAGS:
                     return
 
-                anchor_id = node.get('id') if node.get('id') in anchor_elements else None
-                if anchor_id is not None:
-                    current_anchor = anchor_id
-                    if node.name in HEADINGISH_TAGS:
-                        return
-                elif root_id and node is anchor_elements.get(root_id):
-                    current_anchor = root_id
-                    if node.name in HEADINGISH_TAGS:
-                        return
+            if node.name in HEADING_TAGS:
+                return
 
-                if node.name in HEADING_TAGS:
-                    return
+            if node.name in BLOCK_TAGS and self._is_numeric_roman_block(node):
+                return
 
-                if node.name in BLOCK_TAGS and self._is_numeric_roman_block(node):
-                    return
+            if node.name in BLOCK_TAGS and current_anchor is not None:
+                anchor_texts[current_anchor].append(PARA_PLACEHOLDER)
 
-                if node.name in BLOCK_TAGS and current_anchor is not None:
-                    anchor_texts[current_anchor].append(PARA_PLACEHOLDER)
+            for child in node.children:
+                walk(child)
 
-                for child in node.children:
-                    walk(child)
+        walk(root)
 
-            walk(root)
-
-            result = {}
-            for aid, pieces in anchor_texts.items():
-                raw = ''.join(pieces)
-                raw = raw.replace(TEXT_BR_PLACEHOLDER, '\n').replace(PARA_PLACEHOLDER, '\n\n')
-                result[aid] = _normalize_text(raw)
-            return result
-
-        else:
-            parts = []
-            def walk(node):
-                if isinstance(node, NavigableString):
-                    parts.append(str(node))
-                    return
-                if not hasattr(node, 'name'):
-                    return
-                if node.name in BLOCK_TAGS and self._is_numeric_roman_block(node):
-                    return
-                if node.name in BLOCK_TAGS:
-                    parts.append(PARA_PLACEHOLDER)
-                for child in node.children:
-                    walk(child)
-
-            walk(root)
-            raw = ''.join(parts)
+        result = {}
+        for aid, pieces in anchor_texts.items():
+            raw = ''.join(pieces)
             raw = raw.replace(TEXT_BR_PLACEHOLDER, '\n').replace(PARA_PLACEHOLDER, '\n\n')
-            return _normalize_text(raw)
+            result[aid] = _normalize_text(raw)
+        return result
 
     def _extract_from_toc(self) -> List[Dict[str, Any]]:
         toc = self.doc.toc
@@ -550,7 +533,7 @@ class ChapterExtractor:
             file_text = self._extract_text(soup, handle_footnotes=False)
             if not file_text:
                 continue
-
+            file_text = file_text.get(DEFAULT_ANCHOR_KEY, "")
             search_from = 0
             for title in headings_in_this_file:
                 escaped = re.escape(title)

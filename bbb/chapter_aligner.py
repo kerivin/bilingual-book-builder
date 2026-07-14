@@ -1,3 +1,4 @@
+# chapter_aligner.py
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
@@ -7,6 +8,7 @@ import re
 
 from bbb import progress
 from bbb.chapter_splitter import ChapterSplitter
+from bbb.constants import SRC_FN_PREFIX, TGT_FN_PREFIX
 from lingua import LanguageDetectorBuilder, LanguageDetector, Language, IsoCode639_1
 from sentence_transformers import SentenceTransformer
 from bertalign import Bertalign
@@ -36,8 +38,7 @@ class ChapterAligner:
         self.log = logging.getLogger(__name__)
 
     def _align_pair(self, source_text: str, target_text: str,
-                    src_footnote_refs=None, tgt_footnote_refs=None,
-                    src_fn_prefix='S_', tgt_fn_prefix='T_') -> List[Dict[str, Any]]:
+                    src_footnote_refs=None, tgt_footnote_refs=None) -> List[Dict[str, Any]]:
         if not source_text.strip() or not target_text.strip():
             return []
 
@@ -82,8 +83,10 @@ class ChapterAligner:
                 clean_sentences.append(token_pattern.sub(' ', sent).strip())
             return paragraphs, flat_sentences, clean_sentences, token_occurrences
 
-        src_paras, src_flat, src_clean, src_sent_tokens = process_side(source_text, src_fn_prefix, src_footnote_refs, src_lang)
-        tgt_paras, tgt_flat, tgt_clean, tgt_sent_tokens = process_side(target_text, tgt_fn_prefix, tgt_footnote_refs, tgt_lang)
+        src_paras, src_flat, src_clean, src_sent_tokens = process_side(
+            source_text, SRC_FN_PREFIX, src_footnote_refs, src_lang)
+        tgt_paras, tgt_flat, tgt_clean, tgt_sent_tokens = process_side(
+            target_text, TGT_FN_PREFIX, tgt_footnote_refs, tgt_lang)
 
         if not src_flat or not tgt_flat:
             return [[{'source': source_text, 'target': target_text}]]
@@ -224,38 +227,30 @@ class ChapterAligner:
 
             output.append(block)
 
-        pairs_to_align = []
+        tasks = []
         for idx, (src_idx, tgt_idx) in enumerate(self.chapter_pairs):
             if src_idx is not None and tgt_idx is not None:
                 src_text = self.source_chapters[src_idx]['full_text']
                 tgt_text = self.target_chapters[tgt_idx]['full_text']
-                pairs_to_align.append((idx, src_text, tgt_text))
+                src_refs = self.source_chapters[src_idx].get('footnote_refs', [])
+                tgt_refs = self.target_chapters[tgt_idx].get('footnote_refs', [])
+                tasks.append((idx, src_text, tgt_text, src_refs, tgt_refs))
 
-        with progress.phase('aligning', len(pairs_to_align), "Aligning chapters"):
-            if self.threads > 1 and pairs_to_align:
-                with ThreadPoolExecutor(max_workers=self.threads) as executor:
-                    future_to_idx = {
-                        executor.submit(self._align_pair, src, tgt,
-                                        self.source_chapters[src_idx].get('footnote_refs', []),
-                                        self.target_chapters[tgt_idx].get('footnote_refs', []),
-                                        'S_', 'T_'): (idx, src, tgt)
-                        for idx, src, tgt in pairs_to_align
-                    }
-                    for future in as_completed(future_to_idx):
-                        idx, src_text, tgt_text = future_to_idx[future]
-                        try:
-                            alignment = future.result()
-                        except Exception as e:
-                            self.log.error(f"Error aligning chapter pair {idx}: {e}")
-                            alignment = [[{'source': src_text, 'target': tgt_text}]]
-                        output[idx]['alignment'] = alignment
-                        progress.update('aligning')
-            else:
-                for idx, src_text, tgt_text in pairs_to_align:
-                    src_refs = self.source_chapters[idx].get('footnote_refs', [])
-                    tgt_refs = self.target_chapters[idx].get('footnote_refs', [])
-                    output[idx]['alignment'] = self._align_pair(src_text, tgt_text,
-                                                                src_refs, tgt_refs, 'S_', 'T_')
+        with progress.phase('aligning', len(tasks), "Aligning chapters"):
+            max_workers = max(1, self.threads)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_idx = {
+                    executor.submit(self._align_pair, src, tgt, src_refs, tgt_refs): (idx, src, tgt)
+                    for idx, src, tgt, src_refs, tgt_refs in tasks
+                }
+                for future in as_completed(future_to_idx):
+                    idx, src_text, tgt_text = future_to_idx[future]
+                    try:
+                        alignment = future.result()
+                    except Exception as e:
+                        self.log.error(f"Error aligning chapter pair {idx}: {e}")
+                        alignment = [[{'source': src_text, 'target': tgt_text}]]
+                    output[idx]['alignment'] = alignment
                     progress.update('aligning')
 
         return output

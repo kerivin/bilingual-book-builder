@@ -1,4 +1,3 @@
-import shutil
 import numpy as np
 from enum import IntEnum
 import logging
@@ -53,92 +52,58 @@ class ChapterMapper:
         for s_line, t_line in zip(source_lines, target_lines):
             self.log.info(f"{s_line:<{col_width}}{t_line}")
 
+    def _iter_ordered_pairs(self):
+        """Yields (src_idx, tgt_idx) tuples (None for unmatched) in the final order."""
+        src_in_pairs = {s for s, t in self.chapter_pairs}
+        tgt_in_pairs = {t for s, t in self.chapter_pairs}
+        unmatched_src = sorted(set(range(len(self.source))) - src_in_pairs) if self.keep_unmatched_source_chapters else []
+        unmatched_tgt = sorted(set(range(len(self.target))) - tgt_in_pairs) if self.keep_unmatched_target_chapters else []
+
+        pairs_sorted = sorted(self.chapter_pairs, key=lambda p: p[0])
+        prev_s, prev_t = -1, -1
+
+        for s, t in pairs_sorted:
+            for src_idx in unmatched_src:
+                if prev_s < src_idx < s:
+                    yield (src_idx, None)
+            for tgt_idx in unmatched_tgt:
+                if prev_t < tgt_idx < t:
+                    yield (None, tgt_idx)
+            yield (s, t)
+            prev_s, prev_t = s, t
+
+        for src_idx in unmatched_src:
+            if src_idx > prev_s:
+                yield (src_idx, None)
+        for tgt_idx in unmatched_tgt:
+            if tgt_idx > prev_t:
+                yield (None, tgt_idx)
+
     def _show_chapter_mapping(self):
         if not self.chapter_pairs and not self.unmatched_source_chapters and not self.unmatched_target_chapters:
             self.log.info("No mapping defined.")
             return
 
-        unmatched_src = set(self.unmatched_source_chapters) if self.keep_unmatched_source_chapters else set()
-        unmatched_tgt = set(self.unmatched_target_chapters) if self.keep_unmatched_target_chapters else set()
-
-        pairs_sorted = sorted(self.chapter_pairs, key=lambda p: p[0])
-
-        prev_s = -1
-        prev_t = -1
-
         self.log.info("\nCurrent mapping:\n")
-
-        for s, t in pairs_sorted:
-            for src_idx in sorted(unmatched_src):
-                if prev_s < src_idx < s:
-                    source_title = self._chapter_title(self.source, src_idx)
-                    source_preview = self._chapter_preview(self.source, src_idx)
-                    self.log.info(f"{source_title} ─ (no target)\n{source_preview}\n─")
-                    utils.print_horizontal_line(self.log.info)
-
-            for tgt_idx in sorted(unmatched_tgt):
-                if prev_t < tgt_idx and tgt_idx < t:
-                    target_title = self._chapter_title(self.target, tgt_idx)
-                    target_preview = self._chapter_preview(self.target, tgt_idx)
-                    self.log.info(f"(no source) ─ {target_title}\n─\n{target_preview}")
-                    utils.print_horizontal_line(self.log.info)
-
-            source_title = self._chapter_title(self.source, s)
-            source_preview = self._chapter_preview(self.source, s)
-            target_title = self._chapter_title(self.target, t)
-            target_preview = self._chapter_preview(self.target, t)
-            self.log.info(f"{source_title} ─ {target_title}\n{source_preview}\n{target_preview}")
+        for s, t in self._iter_ordered_pairs():
+            if s is not None and t is not None:
+                source_title = self._chapter_title(self.source, s)
+                source_preview = self._chapter_preview(self.source, s)
+                target_title = self._chapter_title(self.target, t)
+                target_preview = self._chapter_preview(self.target, t)
+                self.log.info(f"{source_title} ─ {target_title}\n{source_preview}\n{target_preview}")
+            elif s is not None:
+                source_title = self._chapter_title(self.source, s)
+                source_preview = self._chapter_preview(self.source, s)
+                self.log.info(f"{source_title} ─ (no target)\n{source_preview}\n─")
+            elif t is not None:
+                target_title = self._chapter_title(self.target, t)
+                target_preview = self._chapter_preview(self.target, t)
+                self.log.info(f"(no source) ─ {target_title}\n─\n{target_preview}")
             utils.print_horizontal_line(self.log.info)
 
-            prev_s, prev_t = s, t
-
-        for src_idx in sorted(unmatched_src):
-            if src_idx > prev_s:
-                source_title = self._chapter_title(self.source, src_idx)
-                source_preview = self._chapter_preview(self.source, src_idx)
-                self.log.info(f"{source_title} ─ (no target)\n{source_preview}\n─")
-                utils.print_horizontal_line(self.log.info)
-
-        for tgt_idx in sorted(unmatched_tgt):
-            if tgt_idx > prev_t:
-                target_title = self._chapter_title(self.target, tgt_idx)
-                target_preview = self._chapter_preview(self.target, tgt_idx)
-                self.log.info(f"(no source) ─ {target_title}\n─\n{target_preview}")
-                utils.print_horizontal_line(self.log.info)
-
     def _export_mapping(self):
-        src_in_pairs = {s for s, t in self.chapter_pairs}
-        tgt_in_pairs = {t for s, t in self.chapter_pairs}
-        all_src = set(range(len(self.source)))
-        all_tgt = set(range(len(self.target)))
-
-        unmatched_src = sorted(all_src - src_in_pairs) if self.keep_unmatched_source_chapters else []
-        unmatched_tgt = sorted(all_tgt - tgt_in_pairs) if self.keep_unmatched_target_chapters else []
-
-        pairs_sorted = sorted(self.chapter_pairs, key=lambda p: p[0])
-
-        ordered_chapters = []
-        prev_s = -1
-        prev_t = -1
-
-        for s, t in pairs_sorted:
-            for src_idx in unmatched_src:
-                if prev_s < src_idx < s:
-                    ordered_chapters.append((src_idx, None))
-            for tgt_idx in unmatched_tgt:
-                if prev_t < tgt_idx < t:
-                    ordered_chapters.append((None, tgt_idx))
-            ordered_chapters.append((s, t))
-            prev_s, prev_t = s, t
-
-        for src_idx in unmatched_src:
-            if src_idx > prev_s:
-                ordered_chapters.append((src_idx, None))
-        for tgt_idx in unmatched_tgt:
-            if tgt_idx > prev_t:
-                ordered_chapters.append((None, tgt_idx))
-
-        return ordered_chapters
+        return [(s, t) for s, t in self._iter_ordered_pairs()]
 
     def _run_interactive(self) -> bool:
         self.chapter_pairs = []
