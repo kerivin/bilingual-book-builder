@@ -63,13 +63,14 @@ class ChapterAligner:
                     tgt_lang = detected[1]
 
         def process_side(text, prefix, fn_refs, lang):
-            paras_raw = self.splitter.run(text, lang) if lang else []
-            all_sentences_raw = [s for p in paras_raw for s in p]
-            clean_sentences = []
-            token_occurrences = []   # per sentence, list of {'token':..., 'target_id':...}
+            if lang is None:
+                return [], [], [], []
+            paragraphs = self.splitter.run(text, lang)
+            flat_sentences = [s for p in paragraphs for s in p]
             token_pattern = re.compile(rf'\s*{re.escape(prefix)}FNREF_(\d+)\s*')
-
-            for sent in all_sentences_raw:
+            clean_sentences = []
+            token_occurrences = []
+            for sent in flat_sentences:
                 found = token_pattern.findall(sent)
                 sent_tokens = []
                 for num in found:
@@ -78,16 +79,11 @@ class ChapterAligner:
                     if fn_info:
                         sent_tokens.append({'token': token_str, 'target_id': fn_info['target_id']})
                 token_occurrences.append(sent_tokens)
-                clean_sent = token_pattern.sub(' ', sent).strip()
-                clean_sentences.append(clean_sent)
-            return all_sentences_raw, clean_sentences, token_occurrences
+                clean_sentences.append(token_pattern.sub(' ', sent).strip())
+            return paragraphs, flat_sentences, clean_sentences, token_occurrences
 
-        src_raw, src_clean, src_sent_tokens = process_side(source_text, src_fn_prefix, src_footnote_refs, src_lang)
-        tgt_raw, tgt_clean, tgt_sent_tokens = process_side(target_text, tgt_fn_prefix, tgt_footnote_refs, tgt_lang)
-
-        src_paras = self.splitter.run(source_text, src_lang)
-        src_flat = src_raw
-        tgt_flat = tgt_raw
+        src_paras, src_flat, src_clean, src_sent_tokens = process_side(source_text, src_fn_prefix, src_footnote_refs, src_lang)
+        tgt_paras, tgt_flat, tgt_clean, tgt_sent_tokens = process_side(target_text, tgt_fn_prefix, tgt_footnote_refs, tgt_lang)
 
         if not src_flat or not tgt_flat:
             return [[{'source': source_text, 'target': target_text}]]
@@ -118,54 +114,54 @@ class ChapterAligner:
         next_tgt = 0
         current_para_idx = 0
 
+        def add_unmatched_src(from_idx, to_idx):
+            nonlocal next_src, current_para_idx
+            for i in range(from_idx, to_idx + 1):
+                if i not in matched_src:
+                    para_idx = bisect_right(src_bounds, i) - 1
+                    seg = {
+                        'source': src_flat[i],
+                        'target': '',
+                        'source_footnote_occurrences': src_sent_tokens[i],
+                        'target_footnote_occurrences': []
+                    }
+                    para_segments.setdefault(para_idx, []).append(seg)
+                    current_para_idx = para_idx
+            next_src = to_idx + 1
+
+        def add_unmatched_tgt(from_idx, to_idx):
+            nonlocal next_tgt, current_para_idx
+            for j in range(from_idx, to_idx + 1):
+                if j not in matched_tgt:
+                    seg_list = para_segments.setdefault(current_para_idx, [])
+                    if seg_list and seg_list[-1].get('target', None) is None:
+                        seg_list[-1]['target'] = tgt_flat[j]
+                        seg_list[-1]['target_footnote_occurrences'] = tgt_sent_tokens[j]
+                    else:
+                        seg_list.append({
+                            'source': '',
+                            'target': tgt_flat[j],
+                            'source_footnote_occurrences': [],
+                            'target_footnote_occurrences': tgt_sent_tokens[j]
+                        })
+            next_tgt = to_idx + 1
+
         for src_indices, tgt_indices in aligner.result:
             if src_indices:
                 match_src_start = min(src_indices)
-                while next_src < match_src_start:
-                    if next_src not in matched_src:
-                        para_idx = bisect_right(src_bounds, next_src) - 1
-                        seg = {'source': src_flat[next_src], 'target': '',
-                               'source_footnote_occurrences': src_sent_tokens[next_src],
-                               'target_footnote_occurrences': []}
-                        para_segments.setdefault(para_idx, []).append(seg)
-                        current_para_idx = para_idx
-                    next_src += 1
+                if next_src < match_src_start:
+                    add_unmatched_src(next_src, match_src_start - 1)
             else:
-                while next_src < len(src_flat):
-                    if next_src not in matched_src:
-                        para_idx = bisect_right(src_bounds, next_src) - 1
-                        seg = {'source': src_flat[next_src], 'target': '',
-                               'source_footnote_occurrences': src_sent_tokens[next_src],
-                               'target_footnote_occurrences': []}
-                        para_segments.setdefault(para_idx, []).append(seg)
-                        current_para_idx = para_idx
-                    next_src += 1
+                if next_src < len(src_flat):
+                    add_unmatched_src(next_src, len(src_flat) - 1)
 
             if tgt_indices:
                 match_tgt_start = min(tgt_indices)
-                while next_tgt < match_tgt_start:
-                    if next_tgt not in matched_tgt:
-                        seg = para_segments.setdefault(current_para_idx, [])
-                        if seg and seg[-1].get('target', None) is None:  # append to existing if empty target
-                            seg[-1]['target'] = tgt_flat[next_tgt]
-                            seg[-1]['target_footnote_occurrences'] = tgt_sent_tokens[next_tgt]
-                        else:
-                            seg.append({'source': '', 'target': tgt_flat[next_tgt],
-                                        'source_footnote_occurrences': [],
-                                        'target_footnote_occurrences': tgt_sent_tokens[next_tgt]})
-                    next_tgt += 1
+                if next_tgt < match_tgt_start:
+                    add_unmatched_tgt(next_tgt, match_tgt_start - 1)
             else:
-                while next_tgt < len(tgt_flat):
-                    if next_tgt not in matched_tgt:
-                        seg = para_segments.setdefault(current_para_idx, [])
-                        if seg and seg[-1].get('target', None) is None:
-                            seg[-1]['target'] = tgt_flat[next_tgt]
-                            seg[-1]['target_footnote_occurrences'] = tgt_sent_tokens[next_tgt]
-                        else:
-                            seg.append({'source': '', 'target': tgt_flat[next_tgt],
-                                        'source_footnote_occurrences': [],
-                                        'target_footnote_occurrences': tgt_sent_tokens[next_tgt]})
-                    next_tgt += 1
+                if next_tgt < len(tgt_flat):
+                    add_unmatched_tgt(next_tgt, len(tgt_flat) - 1)
 
             src_seg = '\n'.join(src_flat[i] for i in src_indices) if src_indices else ''
             tgt_seg = '\n'.join(tgt_flat[i] for i in tgt_indices) if tgt_indices else ''
@@ -180,6 +176,7 @@ class ChapterAligner:
             if src_indices:
                 para_idx = bisect_right(src_bounds, min(src_indices)) - 1
                 current_para_idx = para_idx
+
             para_segments.setdefault(current_para_idx, []).append({
                 'source': src_seg,
                 'target': tgt_seg,
@@ -192,26 +189,10 @@ class ChapterAligner:
             if tgt_indices:
                 next_tgt = max(tgt_indices) + 1
 
-        while next_src < len(src_flat):
-            if next_src not in matched_src:
-                para_idx = bisect_right(src_bounds, next_src) - 1
-                seg = {'source': src_flat[next_src], 'target': '',
-                       'source_footnote_occurrences': src_sent_tokens[next_src],
-                       'target_footnote_occurrences': []}
-                para_segments.setdefault(para_idx, []).append(seg)
-                current_para_idx = para_idx
-            next_src += 1
-        while next_tgt < len(tgt_flat):
-            if next_tgt not in matched_tgt:
-                seg = para_segments.setdefault(current_para_idx, [])
-                if seg and seg[-1].get('target', None) is None:
-                    seg[-1]['target'] = tgt_flat[next_tgt]
-                    seg[-1]['target_footnote_occurrences'] = tgt_sent_tokens[next_tgt]
-                else:
-                    seg.append({'source': '', 'target': tgt_flat[next_tgt],
-                                'source_footnote_occurrences': [],
-                                'target_footnote_occurrences': tgt_sent_tokens[next_tgt]})
-            next_tgt += 1
+        if next_src < len(src_flat):
+            add_unmatched_src(next_src, len(src_flat) - 1)
+        if next_tgt < len(tgt_flat):
+            add_unmatched_tgt(next_tgt, len(tgt_flat) - 1)
 
         aligned_paras = [para_segments[i] for i in sorted(para_segments)]
         return aligned_paras

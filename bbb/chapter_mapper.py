@@ -105,7 +105,7 @@ class ChapterMapper:
                 target_preview = self._chapter_preview(self.target, tgt_idx)
                 self.log.info(f"(no source) ─ {target_title}\n─\n{target_preview}")
                 utils.print_horizontal_line(self.log.info)
-    
+
     def _export_mapping(self):
         src_in_pairs = {s for s, t in self.chapter_pairs}
         tgt_in_pairs = {t for s, t in self.chapter_pairs}
@@ -235,7 +235,7 @@ class ChapterMapper:
 
         self._show_chapter_mapping()
         return True
-    
+
     def run_interactive(self):
         with utils.temporary_log_level(self.log, logging.INFO):
             while True:
@@ -280,17 +280,16 @@ class ChapterMapper:
         src_embs = src_embs / np.linalg.norm(src_embs, axis = 1, keepdims = True)
         tgt_embs = tgt_embs / np.linalg.norm(tgt_embs, axis = 1, keepdims = True)
 
-        sim = np.dot(src_embs, tgt_embs.T)  # shape (S, T)
+        sim = np.dot(src_embs, tgt_embs.T)
 
         S, T = len(src_signature), len(tgt_signature)
-        # DP table: dp[i][j] = best score up to i-1, j-1
         dp = np.full((S+1, T+1), -1e9)
         dp[0, 0] = 0.0
 
         class MatchDirection(IntEnum):
             DIAGONAL = 0
-            UP = 1 # skip source
-            LEFT = 2 # skip target
+            UP = 1
+            LEFT = 2
         back = np.zeros((S+1, T+1), dtype=int)
 
         for i in range(S+1):

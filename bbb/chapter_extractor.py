@@ -20,9 +20,9 @@ PARA_PLACEHOLDER = '__PARA__'
 
 
 def _normalize_text(raw):
-    text = re.sub(r'[^\S\n]+', ' ', raw) # multiple horizontal whitespace -> single space
-    text = re.sub(r' *\n *', '\n', text) # remove spaces adjacent to newlines
-    text = re.sub(r'\n{3,}', '\n\n', text) # at most two consecutive newlines
+    text = re.sub(r'[^\S\n]+', ' ', raw)
+    text = re.sub(r' *\n *', '\n', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
 
@@ -43,20 +43,20 @@ class ChapterExtractor:
         self._spine_idrefs: List[str] = []
         self._build_spine_info()
 
-    def get_chapter_list(self) -> List[Dict[str, Any]]:
+    def get_chapter_list(self) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
         self.log.info("Extracting chapters via ToC...")
         self.footnotes = self._build_global_footnote_map()
         toc_chapters = self._extract_from_toc()
         if toc_chapters and len(toc_chapters) >= 2:
-            return toc_chapters
+            return toc_chapters, self.footnotes
         self.log.info("Extracting chapters via headers...")
         h_chapters = self._extract_via_headers()
         if h_chapters and len(h_chapters) >= 2:
-            return h_chapters
+            return h_chapters, self.footnotes
         elif toc_chapters:
-            return toc_chapters
+            return toc_chapters, self.footnotes
         else:
-            return h_chapters
+            return h_chapters, self.footnotes
 
     def _show_chapters(self, chapters: List[Dict[str, Any]]) -> None:
         if not self.force_show:
@@ -130,7 +130,7 @@ class ChapterExtractor:
         for fid in candidate_ids:
             if fid in title_fallbacks:
                 footnote_bodies[fid] = html.escape(title_fallbacks[fid])
-        
+
         for fid in footnote_bodies:
             body_html = footnote_bodies[fid]
             if not body_html:

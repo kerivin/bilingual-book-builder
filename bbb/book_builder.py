@@ -20,9 +20,20 @@ class BookBuilder:
         self.target_footnotes = target_footnotes or {}
         self.log = logging.getLogger(__name__)
 
-    def _inline_text(self, text: str) -> str:
-        escaped = html.escape(text, quote=False)
-        return escaped.replace('\n', '<br/>\n')
+    @staticmethod
+    def _escape(text: str) -> str:
+        return html.escape(text, quote=False)
+
+    @staticmethod
+    def _inline_html(text: str) -> str:
+        return BookBuilder._escape(text).replace('\n', '<br/>\n')
+
+    @staticmethod
+    def _paragraphs_html(text: str) -> str:
+        paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+        return '\n'.join(
+            f'<p>{BookBuilder._inline_html(p)}</p>' for p in paragraphs
+        )
 
     def _get_base_dir(self) -> str:
         spine = self.target_book.spine
@@ -188,14 +199,6 @@ class BookBuilder:
         book.add_item(item)
         return item
 
-    def _text_to_paragraphs(self, text: str) -> str:
-        if not text:
-            return ""
-        paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-        return '\n'.join(
-            f'<p>{p.replace("\n", "<br/>\n")}</p>' for p in paragraphs
-        )
-
     def _apply_footnote_links(self, text, token_occurrences, footnote_bodies, used_numbers):
         if not token_occurrences:
             return text, []
@@ -220,23 +223,17 @@ class BookBuilder:
             text = text.replace(token, html_tag)
         return text, fn_items
 
-    def _build_two_column_html(self, aligned_paras, header_row: str = "",
-                               already_escaped: bool = False) -> str:
+    def _build_two_column_html(self, aligned_paras, header_row: str = "") -> str:
         rows = []
         if header_row:
             rows.append(header_row)
         for para in aligned_paras:
             for i, seg in enumerate(para):
                 row_class = 'class="first-sentence"' if i == 0 else ''
-                src_html = seg['source']
-                tgt_html = seg['target']
-                if not already_escaped:
-                    src_html = self._inline_text(src_html)
-                    tgt_html = self._inline_text(tgt_html)
                 rows.append(
                     f'<tr {row_class}>'
-                    f'<td class="bilingual-left">{src_html}</td>'
-                    f'<td class="bilingual-right">{tgt_html}</td>'
+                    f'<td class="bilingual-left">{seg["source"]}</td>'
+                    f'<td class="bilingual-right">{seg["target"]}</td>'
                     f'</tr>'
                 )
         return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
@@ -256,7 +253,7 @@ class BookBuilder:
         lines = []
         for i, label in enumerate(visible):
             depth = common + i + 1
-            level = min(depth, 6)  # h1..h6
+            level = min(depth, 6)
             escaped = html.escape(label)
             lines.append(f'<h{level} class="bilingual-heading">{escaped}</h{level}>')
 
@@ -296,8 +293,8 @@ class BookBuilder:
                     src_occurrences = seg.get('source_footnote_occurrences', [])
                     tgt_occurrences = seg.get('target_footnote_occurrences', [])
 
-                    src_inlined = self._inline_text(src_text)
-                    tgt_inlined = self._inline_text(tgt_text)
+                    src_inlined = self._inline_html(src_text)
+                    tgt_inlined = self._inline_html(tgt_text)
 
                     src_html, src_fns = self._apply_footnote_links(
                         src_inlined, src_occurrences, self.source_footnotes, used_numbers)
@@ -310,7 +307,7 @@ class BookBuilder:
                     new_para.append({'source': src_html, 'target': tgt_html})
                 processed_paras.append(new_para)
 
-            body_html = self._build_two_column_html(processed_paras, header_row, already_escaped=True)
+            body_html = self._build_two_column_html(processed_paras, header_row)
 
             if all_footnote_items:
                 fn_list_items = ''.join(
@@ -327,12 +324,10 @@ class BookBuilder:
             toc_path = tgt_toc
 
         elif source_info and not target_info:
-            # source-only chapter – no footnotes handling for simplicity,
-            # but could be added similarly.
             src_display = source_info.get('display_path', [])
             src_toc = source_info.get('toc_path', [])
             heading = self._make_heading_html(src_display, prev_source_path)
-            body = self._text_to_paragraphs(source_info.get('full_text', ''))
+            body = self._paragraphs_html(source_info.get('text', ''))
             body_html = f'<div class="bilingual-source-only">\n{heading}\n{body}\n</div>'
             flat_title = src_display[-1] if src_display else ''
             toc_path = src_toc
@@ -341,7 +336,7 @@ class BookBuilder:
             tgt_display = target_info.get('display_path', [])
             tgt_toc = target_info.get('toc_path', [])
             heading = self._make_heading_html(tgt_display, prev_target_path)
-            body = self._text_to_paragraphs(target_info.get('full_text', ''))
+            body = self._paragraphs_html(target_info.get('text', ''))
             body_html = f'<div class="bilingual-target-only">\n{heading}\n{body}\n</div>'
             flat_title = tgt_display[-1] if tgt_display else ''
             toc_path = tgt_toc

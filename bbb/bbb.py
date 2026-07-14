@@ -46,7 +46,7 @@ class BBB:
 
         progress.init(verbosity, progress_callback)
         self.log = logging.getLogger(__name__)
-    
+
     def _create_sentence_transformer(self):
         from sentence_transformers import SentenceTransformer
         return SentenceTransformer(self.align_model)
@@ -57,16 +57,14 @@ class BBB:
             force_show = self.only == 'extract',
             fn_prefix = 'S_',
         )
-        source_chapters = source_extractor.get_chapter_list()
-        source_footnotes = source_extractor.footnotes
+        source_chapters, source_footnotes = source_extractor.get_chapter_list()
 
         target_extractor = ChapterExtractor(
             path = self.target_path,
             force_show = self.only == 'extract',
             fn_prefix = 'T_',
         )
-        target_chapters = target_extractor.get_chapter_list()
-        target_footnotes = target_extractor.footnotes
+        target_chapters, target_footnotes = target_extractor.get_chapter_list()
 
         if not source_chapters or not target_chapters:
             self.log.error("No chapters extracted from one or both books.")
@@ -81,7 +79,7 @@ class BBB:
             keep_unmatched_source_chapters = self.keep_unmatched_source_chapters,
             keep_unmatched_target_chapters = self.keep_unmatched_target_chapters,
         )
-        
+
         sentence_transformer = None
         chapter_pairs = []
         if not self.manual:
@@ -93,14 +91,14 @@ class BBB:
             )
         else:
             chapter_pairs = mapper.run_interactive()
-        
+
         if not chapter_pairs:
             self.log.error("No chapters to align")
             return
-        
+
         if self.only == 'auto-match':
             return
-        
+
         if sentence_transformer is None:
             sentence_transformer = self._create_sentence_transformer()
 
@@ -118,7 +116,7 @@ class BBB:
         if not aligned_chapters:
             self.log.error("No aligned chapters produced.")
             return
-        
+
         new_book = BookBuilder(
             source_path = self.source_path,
             target_path = self.target_path,
@@ -131,9 +129,8 @@ class BBB:
         if not new_book:
             self.log.error("Failed to build the new book.")
             return
-        
+
         if not self.output.lower().endswith(".epub"):
             self.output += ".epub"
         epub.write_epub(self.output, new_book)
         self.log.info("EPUB written successfully.")
-        
