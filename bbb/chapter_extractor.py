@@ -28,7 +28,7 @@ def _normalize_text(raw):
 
 class ChapterExtractor:
     def __init__(self, path: str, force_show: bool = False,
-                 preview_words: int = 20, min_chars: int = 200, fn_prefix: str = 'S_'):
+                 preview_words: int = 20, min_chars: int = 100, fn_prefix: str = 'S_'):
         self.doc = Document(path)
         self.force_show = force_show
         self.preview_words = preview_words
