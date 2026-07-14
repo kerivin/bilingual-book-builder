@@ -223,6 +223,16 @@ class BookBuilder:
             text = text.replace(token, html_tag)
         return text, fn_items
 
+    def _build_footnote_list(self, fn_items):
+        if not fn_items:
+            return ''
+        items = ''.join(
+            f'<li id="{fn["id"]}">{fn["body"]} '
+            f'<a href="#{fn["ref_id"]}" class="footnote-backref">↩</a></li>'
+            for fn in fn_items
+        )
+        return '<hr class="footnote-separator"/><div class="footnotes"><ol>' + items + '</ol></div>'
+
     def _build_two_column_html(self, aligned_paras, header_row: str = "") -> str:
         rows = []
         if header_row:
@@ -259,6 +269,24 @@ class BookBuilder:
 
         return '\n'.join(lines)
 
+    def _build_single_side_chapter(self, side_info, footnotes_map, prev_path, css_class):
+        display_path = side_info.get('display_path', [])
+        toc_path = side_info.get('toc_path', [])
+        heading = self._make_heading_html(display_path, prev_path)
+        raw_text = side_info.get('text', '')
+        body = self._paragraphs_html(raw_text)
+        fn_refs = side_info.get('footnote_refs', [])
+        if fn_refs:
+            used_numbers = [0]
+            body, fn_items = self._apply_footnote_links(body, fn_refs, footnotes_map, used_numbers)
+        else:
+            fn_items = []
+        body_html = f'<div class="{css_class}">\n{heading}\n{body}\n</div>'
+        if fn_items:
+            body_html += self._build_footnote_list(fn_items)
+        flat_title = display_path[-1] if display_path else ''
+        return {'body_html': body_html, 'flat_title': flat_title, 'toc_path': toc_path}
+
     def _build_chapter(self, source_info: Optional[Dict[str, Any]],
                        target_info: Optional[Dict[str, Any]],
                        alignment: List[List[Dict[str, str]]],
@@ -268,12 +296,8 @@ class BookBuilder:
         if source_info and target_info:
             src_display = source_info.get('display_path', [])
             tgt_display = target_info.get('display_path', [])
-            src_toc = source_info.get('toc_path', [])
-            tgt_toc = target_info.get('toc_path', [])
-
             src_heading = self._make_heading_html(src_display, prev_source_path)
             tgt_heading = self._make_heading_html(tgt_display, prev_target_path)
-
             header_row = (
                 f'<tr class="title-row">'
                 f'<td class="bilingual-left">{src_heading}</td>'
@@ -281,119 +305,43 @@ class BookBuilder:
                 f'</tr>'
             )
 
-            all_footnote_items = []
+            all_fn_items = []
             used_numbers = [0]
-
             processed_paras = []
             for para in alignment:
                 new_para = []
                 for seg in para:
                     src_text = seg['source']
                     tgt_text = seg['target']
-                    src_occurrences = seg.get('source_footnote_occurrences', [])
-                    tgt_occurrences = seg.get('target_footnote_occurrences', [])
-
-                    src_inlined = self._inline_html(src_text)
-                    tgt_inlined = self._inline_html(tgt_text)
-
+                    src_occ = seg.get('source_footnote_occurrences', [])
+                    tgt_occ = seg.get('target_footnote_occurrences', [])
                     src_html, src_fns = self._apply_footnote_links(
-                        src_inlined, src_occurrences, self.source_footnotes, used_numbers)
+                        self._inline_html(src_text), src_occ, self.source_footnotes, used_numbers
+                    )
                     tgt_html, tgt_fns = self._apply_footnote_links(
-                        tgt_inlined, tgt_occurrences, self.target_footnotes, used_numbers)
-
-                    all_footnote_items.extend(src_fns)
-                    all_footnote_items.extend(tgt_fns)
-
+                        self._inline_html(tgt_text), tgt_occ, self.target_footnotes, used_numbers
+                    )
+                    all_fn_items.extend(src_fns + tgt_fns)
                     new_para.append({'source': src_html, 'target': tgt_html})
                 processed_paras.append(new_para)
 
             body_html = self._build_two_column_html(processed_paras, header_row)
-
-            if all_footnote_items:
-                fn_list_items = ''.join(
-                    f'<li id="{fn["id"]}">{fn["body"]} '
-                    f'<a href="#{fn["ref_id"]}" class="footnote-backref">↩</a></li>'
-                    for fn in all_footnote_items
-                )
-                body_html += (
-                    '<hr class="footnote-separator"/>'
-                    '<div class="footnotes"><ol>' + fn_list_items + '</ol></div>'
-                )
-
+            if all_fn_items:
+                body_html += self._build_footnote_list(all_fn_items)
             flat_title = src_display[-1] + ' / ' + tgt_display[-1]
-            toc_path = tgt_toc
+            toc_path = target_info.get('toc_path', [])
+            return {'body_html': body_html, 'flat_title': flat_title, 'toc_path': toc_path}
 
-        elif source_info and not target_info:
-            src_display = source_info.get('display_path', [])
-            src_toc = source_info.get('toc_path', [])
-            heading = self._make_heading_html(src_display, prev_source_path)
-
-            raw_text = source_info.get('text', '')
-            body = self._paragraphs_html(raw_text)
-
-            fn_refs = source_info.get('footnote_refs', [])
-            if fn_refs:
-                used_numbers = [0]
-                body, fn_items = self._apply_footnote_links(
-                    body, fn_refs, self.source_footnotes, used_numbers
-                )
-                body_html = f'<div class="bilingual-source-only">\n{heading}\n{body}\n</div>'
-                if fn_items:
-                    fn_list = ''.join(
-                        f'<li id="{fn["id"]}">{fn["body"]} '
-                        f'<a href="#{fn["ref_id"]}" class="footnote-backref">↩</a></li>'
-                        for fn in fn_items
-                    )
-                    body_html += (
-                        '<hr class="footnote-separator"/>'
-                        '<div class="footnotes"><ol>' + fn_list + '</ol></div>'
-                    )
-            else:
-                body_html = f'<div class="bilingual-source-only">\n{heading}\n{body}\n</div>'
-
-            flat_title = src_display[-1] if src_display else ''
-            toc_path = src_toc
-
-        elif target_info and not source_info:
-            tgt_display = target_info.get('display_path', [])
-            tgt_toc = target_info.get('toc_path', [])
-            heading = self._make_heading_html(tgt_display, prev_target_path)
-
-            raw_text = target_info.get('text', '')
-            body = self._paragraphs_html(raw_text)
-
-            fn_refs = target_info.get('footnote_refs', [])
-            if fn_refs:
-                used_numbers = [0]
-                body, fn_items = self._apply_footnote_links(
-                    body, fn_refs, self.target_footnotes, used_numbers
-                )
-                body_html = f'<div class="bilingual-target-only">\n{heading}\n{body}\n</div>'
-                if fn_items:
-                    fn_list = ''.join(
-                        f'<li id="{fn["id"]}">{fn["body"]} '
-                        f'<a href="#{fn["ref_id"]}" class="footnote-backref">↩</a></li>'
-                        for fn in fn_items
-                    )
-                    body_html += (
-                        '<hr class="footnote-separator"/>'
-                        '<div class="footnotes"><ol>' + fn_list + '</ol></div>'
-                    )
-            else:
-                body_html = f'<div class="bilingual-target-only">\n{heading}\n{body}\n</div>'
-
-            flat_title = tgt_display[-1] if tgt_display else ''
-            toc_path = tgt_toc
-
+        elif source_info:
+            return self._build_single_side_chapter(
+                source_info, self.source_footnotes, prev_source_path, 'bilingual-source-only'
+            )
+        elif target_info:
+            return self._build_single_side_chapter(
+                target_info, self.target_footnotes, prev_target_path, 'bilingual-target-only'
+            )
         else:
-            body_html = flat_title = ''
-            toc_path = []
-
-        return {
-            'body_html': body_html,
-            'flat_title': flat_title,
-            'toc_path': toc_path,
-        }
+            return {'body_html': '', 'flat_title': '', 'toc_path': []}
 
     def run(self) -> epub.EpubBook | None:
         self.source_book = epub.read_epub(self.source_path)
