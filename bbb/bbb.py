@@ -3,6 +3,7 @@ import logging
 from typing import Literal
 
 from bbb import progress
+from bbb.epub_file import EpubFile
 from bbb.extractor import Extractor
 from bbb.mapper import Mapper
 from bbb.aligner import Aligner
@@ -56,15 +57,25 @@ class BBB:
         return SentenceTransformer(self.align_model)
 
     def run(self):
+        source_book = EpubFile(self.source_path)
+        if not source_book:
+            self.log.error(f"Failed to read source EPUB file {self.source_path}.")
+            return
+        
+        target_book = EpubFile(self.target_path)
+        if not target_book:
+            self.log.error(f"Failed to read target EPUB file {self.target_path}.")
+            return None
+
         source_extractor = Extractor(
-            path = self.source_path,
+            epub_file = source_book,
             force_show = self.only == 'extract',
             fn_prefix = SRC_FN_PREFIX,
         )
         source_chapters, source_footnotes = source_extractor.get_chapter_list()
 
         target_extractor = Extractor(
-            path = self.target_path,
+            epub_file = target_book,
             force_show = self.only == 'extract',
             fn_prefix = TGT_FN_PREFIX,
         )
@@ -122,8 +133,8 @@ class BBB:
             return
 
         new_book = BookBuilder(
-            source_path = self.source_path,
-            target_path = self.target_path,
+            source_book = source_book,
+            target_book = target_book,
             blocks = aligned_chapters,
             copy_target_cover = self.cover == 'target',
             source_footnotes = source_footnotes,

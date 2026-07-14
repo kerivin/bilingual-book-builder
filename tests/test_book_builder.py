@@ -1,17 +1,24 @@
-import io, pytest
+import pytest
 from ebooklib import epub
-from unittest.mock import patch
+from bbb.epub_file import EpubFile
 from bbb.book_builder import BookBuilder
-from conftest import make_epub_bytes, create_chapter_html
+from conftest import make_epub_bytes, create_chapter_html, write_epub_to_fake
 
-def build_epubs(src_chapters=None, tgt_chapters=None, src_title="Src", tgt_title="Tgt"):
-    src = make_epub_bytes(src_chapters or [
-        {"filename": "ch1.xhtml", "content": create_chapter_html("S Ch1", "Src text")}
-    ], title=src_title)
-    tgt = make_epub_bytes(tgt_chapters or [
-        {"filename": "ch1.xhtml", "content": create_chapter_html("T Ch1", "Tgt text")}
-    ], title=tgt_title)
-    return src, tgt
+
+def build_epub_files(fs):
+    """Create source and target EpubFile objects on fake fs."""
+    src_bytes = make_epub_bytes(
+        [{"filename": "ch1.xhtml", "content": create_chapter_html("S Ch1", "Src text")}],
+        title="Src"
+    )
+    tgt_bytes = make_epub_bytes(
+        [{"filename": "ch1.xhtml", "content": create_chapter_html("T Ch1", "Tgt text")}],
+        title="Tgt"
+    )
+    src_path = write_epub_to_fake(fs, src_bytes, "src.epub")
+    tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
+    return EpubFile(src_path), EpubFile(tgt_path)
+
 
 def test_two_column_html():
     bb = BookBuilder.__new__(BookBuilder)
@@ -21,9 +28,10 @@ def test_two_column_html():
     assert '<td class="bilingual-right">B</td>' in html
     assert 'class="bilingual-table"' in html
 
-def test_bilingual_layout_with_header():
-    src_bytes, tgt_bytes = build_epubs()
-    bb = BookBuilder(src_bytes, tgt_bytes, [])
+
+def test_bilingual_layout_with_header(fs):
+    src_file, tgt_file = build_epub_files(fs)
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[])
     block = {
         "source": {"display_path": ["Source Ch"], "toc_path": ["Source Ch"]},
         "target": {"display_path": ["Target Ch"], "toc_path": ["Target Ch"]},
@@ -40,9 +48,10 @@ def test_bilingual_layout_with_header():
     assert "Source Ch" in ch["body_html"]
     assert "Target Ch" in ch["body_html"]
 
-def test_single_side_chapter():
-    src_bytes, tgt_bytes = build_epubs()
-    bb = BookBuilder(src_bytes, tgt_bytes, [])
+
+def test_single_side_chapter(fs):
+    src_file, tgt_file = build_epub_files(fs)
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[])
     result = bb._build_single_side_chapter(
         {"display_path": ["Only Src"], "toc_path": ["Only Src"], "text": "Some text"},
         {}, [], "bilingual-source-only"
@@ -51,9 +60,10 @@ def test_single_side_chapter():
     assert "Some text" in result["body_html"]
     assert "bilingual-table" not in result["body_html"]
 
-def test_chapter_hierarchy_preserved():
-    src_bytes, tgt_bytes = build_epubs()
-    bb = BookBuilder(src_bytes, tgt_bytes, [])
+
+def test_chapter_hierarchy_preserved(fs):
+    src_file, tgt_file = build_epub_files(fs)
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[])
     src_info = {"display_path": ["Part I", "Chapter 1"], "toc_path": ["Part I", "Chapter 1"]}
     tgt_info = {"display_path": ["Teil I", "Kapitel 1"], "toc_path": ["Teil I", "Kapitel 1"]}
     ch = bb._build_chapter(src_info, tgt_info, [], [], [])
@@ -62,9 +72,10 @@ def test_chapter_hierarchy_preserved():
     assert "Part I</h1>" in ch["body_html"]
     assert "Chapter 1</h2>" in ch["body_html"]
 
-def test_footnotes_in_output():
-    src_bytes, tgt_bytes = build_epubs()
-    bb = BookBuilder(src_bytes, tgt_bytes, [],
+
+def test_footnotes_in_output(fs):
+    src_file, tgt_file = build_epub_files(fs)
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[],
                      source_footnotes={"fn1": "Source footnote"},
                      target_footnotes={"fn2": "Target footnote"})
     block = {
@@ -80,21 +91,19 @@ def test_footnotes_in_output():
     assert "Target footnote" in ch["body_html"]
     assert "footnotes" in ch["body_html"]
 
-def test_css_copied():
+
+def test_css_copied(fs):
     """Stylesheet from target epub is copied into new book."""
     src_bytes = make_epub_bytes([], title="Src")
     tgt_bytes = make_epub_bytes([{"filename": "ch.xhtml", "content": "<p>t</p>"}],
                                 title="Tgt", styles=[("style.css", b"body{color:red;}")])
+    src_path = write_epub_to_fake(fs, src_bytes, "src.epub")
+    tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
+    src_file = EpubFile(src_path)
+    tgt_file = EpubFile(tgt_path)
 
-    src_book = epub.read_epub(io.BytesIO(src_bytes))
-    tgt_book = epub.read_epub(io.BytesIO(tgt_bytes))
-
-    with patch('bbb.book_builder.epub.read_epub') as mock_read:
-        mock_read.side_effect = lambda path: src_book if path is src_bytes else tgt_book
-        bb = BookBuilder(src_bytes, tgt_bytes, [])
-        new_book = bb.run()
-        assert new_book is not None
-
-        # Check that the stylesheet file_name appears among the output items
-        all_files = [i.file_name for i in new_book.get_items()]
-        assert "style.css" in all_files
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[])
+    new_book = bb.run()
+    assert new_book is not None
+    all_files = [i.file_name for i in new_book.get_items()]
+    assert "style.css" in all_files

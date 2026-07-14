@@ -6,9 +6,9 @@ from typing import List, Dict, Any, Optional, Tuple
 from collections import OrderedDict
 
 from bs4 import BeautifulSoup, NavigableString, Comment
-from epub_utils import Document
 
 from bbb import progress, utils
+from bbb.epub_file import EpubFile
 
 HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 HEADINGISH_TAGS = {'hgroup', *HEADING_TAGS}
@@ -29,9 +29,9 @@ def _normalize_text(raw):
 
 
 class Extractor:
-    def __init__(self, path: str, force_show: bool = False,
+    def __init__(self, epub_file: EpubFile, force_show: bool = False,
                  preview_words: int = 20, min_chars: int = 100, fn_prefix: str = 'S_'):
-        self.doc = Document(path)
+        self.doc = epub_file.document
         self.force_show = force_show
         self.preview_words = preview_words
         self.min_chars = min_chars
