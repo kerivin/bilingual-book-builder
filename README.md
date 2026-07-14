@@ -75,6 +75,7 @@ python -m bbb --help
 | `--only {auto-match,extract}` | Only show extracted chapters or auto-matched chapters without generating a new EPUB
 | `--keep-source-chapters` | Keep source (original) chapters with no matching target (translation) chapters.<br>Default: off
 | `--keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: off
+| `--cover {source, target}` | Which book's cover to copy for the new EPUB.<br>Default: source
 | `--align-model` | Name or path to sentence embedding model.<br>Default: [LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
 | `--split-model` | Name or path to text-to-sentences splitter model.<br>Default: [sat-3l](https://huggingface.co/segment-any-text/sat-3l)
 | `--simple-split` | Use simple sentence splitter (not the `--split-model` one) which works faster but with [fewer languages](https://github.com/mediacloud/sentence-splitter/tree/develop#languages).<br>Default: off
