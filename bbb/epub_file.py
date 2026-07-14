@@ -43,7 +43,3 @@ class EpubFile:
 
     def get_item_with_id(self, item_id):
         return self.ebook.get_item_with_id(item_id)
-
-    @classmethod
-    def from_bytes(cls, data: bytes, path: str = "/virtual/book.epub"):
-        raise NotImplementedError("Use the path constructor for production")
