@@ -31,7 +31,7 @@ class ChapterAligner:
         self.threads = threads
         self.align_model_encoder = Encoder(align_model)
         self.splitter = ChapterSplitter(split_model)
-        self.language_detector: LanguageDetector = LanguageDetectorBuilder.from_all_languages().with_low_accuracy_mode().build()
+        self.language_detector: LanguageDetector = LanguageDetectorBuilder.from_all_languages().build()
         self.log = logging.getLogger(__name__)
 
     def _align_pair(self, source_text: str, target_text: str) -> List[List[Dict[str, str]]]:
@@ -50,6 +50,8 @@ class ChapterAligner:
             self.log.info("Detecting language...")
             try:
                 detected = self.language_detector.detect_languages_in_parallel_of(texts_to_detect)
+                self.log.info("Languages detected:")
+                [self.log.info(language.name) for language in detected]
             except Exception as e:
                 e.add_note("^ LanguageDetector")
                 raise
