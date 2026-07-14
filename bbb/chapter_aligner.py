@@ -209,6 +209,7 @@ class ChapterAligner:
                     'toc_path': ch['toc_path'],
                     'text': ch['full_text'] if target_index is None else None,
                     'index': ch['index'],
+                    'footnote_refs': ch.get('footnote_refs', []),
                 }
 
             if target_index is not None:
@@ -218,6 +219,7 @@ class ChapterAligner:
                     'toc_path': ch['toc_path'],
                     'text': ch['full_text'] if source_index is None else None,
                     'index': ch['index'],
+                    'footnote_refs': ch.get('footnote_refs', []),
                 }
 
             output.append(block)
