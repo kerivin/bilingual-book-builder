@@ -239,6 +239,21 @@ class Mapper:
         src_signature = [chapter_signature(ch) for ch in self.source]
         tgt_signature = [chapter_signature(ch) for ch in self.target]
 
+        S, T = len(src_signature), len(tgt_signature)
+
+        if S == 0 and T == 0:
+            return []
+        if S == 0:
+            if self.keep_unmatched_target_chapters:
+                self.unmatched_target_chapters = list(range(T))
+                return [(None, i) for i in range(T)]
+            return []
+        if T == 0:
+            if self.keep_unmatched_source_chapters:
+                self.unmatched_source_chapters = list(range(S))
+                return [(i, None) for i in range(S)]
+            return []
+
         src_embs = model.encode(src_signature, convert_to_numpy = True, show_progress_bar = False)
         tgt_embs = model.encode(tgt_signature, convert_to_numpy = True, show_progress_bar = False)
 
@@ -247,7 +262,6 @@ class Mapper:
 
         sim = np.dot(src_embs, tgt_embs.T)
 
-        S, T = len(src_signature), len(tgt_signature)
         dp = np.full((S+1, T+1), -1e9)
         dp[0, 0] = 0.0
 
