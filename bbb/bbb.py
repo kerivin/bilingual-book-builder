@@ -3,9 +3,9 @@ import logging
 from typing import Literal
 
 from bbb import progress
-from bbb.chapter_extractor import ChapterExtractor
-from bbb.chapter_mapper import ChapterMapper
-from bbb.chapter_aligner import ChapterAligner
+from bbb.extractor import Extractor
+from bbb.mapper import Mapper
+from bbb.aligner import Aligner
 from bbb.book_builder import BookBuilder
 from bbb.constants import SRC_FN_PREFIX, TGT_FN_PREFIX
 
@@ -56,14 +56,14 @@ class BBB:
         return SentenceTransformer(self.align_model)
 
     def run(self):
-        source_extractor = ChapterExtractor(
+        source_extractor = Extractor(
             path = self.source_path,
             force_show = self.only == 'extract',
             fn_prefix = SRC_FN_PREFIX,
         )
         source_chapters, source_footnotes = source_extractor.get_chapter_list()
 
-        target_extractor = ChapterExtractor(
+        target_extractor = Extractor(
             path = self.target_path,
             force_show = self.only == 'extract',
             fn_prefix = TGT_FN_PREFIX,
@@ -77,7 +77,7 @@ class BBB:
         if self.only == 'extract':
             return
 
-        mapper = ChapterMapper(
+        mapper = Mapper(
             source_chapters = source_chapters,
             target_chapters = target_chapters,
             keep_unmatched_source_chapters = self.keep_unmatched_source_chapters,
@@ -106,7 +106,7 @@ class BBB:
         if sentence_transformer is None:
             sentence_transformer = self._create_sentence_transformer()
 
-        aligned_chapters = ChapterAligner(
+        aligned_chapters = Aligner(
             source_chapters,
             target_chapters,
             chapter_pairs,

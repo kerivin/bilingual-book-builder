@@ -3,7 +3,7 @@ from enum import IntEnum
 import logging
 from bbb import progress, utils
 
-class ChapterMapper:
+class Mapper:
     def __init__(self, source_chapters, target_chapters, keep_unmatched_source_chapters: bool, keep_unmatched_target_chapters: bool):
         self.source = source_chapters
         self.target = target_chapters

@@ -1,4 +1,3 @@
-# chapter_aligner.py
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
@@ -7,14 +6,14 @@ from bisect import bisect_right
 import re
 
 from bbb import progress
-from bbb.chapter_splitter import ChapterSplitter
+from bbb.splitter import Splitter
 from bbb.constants import SRC_FN_PREFIX, TGT_FN_PREFIX
 from lingua import LanguageDetectorBuilder, LanguageDetector, Language, IsoCode639_1
 from sentence_transformers import SentenceTransformer
 from bertalign import Bertalign
 from bertalign.encoder import Encoder
 
-class ChapterAligner:
+class Aligner:
     def __init__(
         self,
         source_chapters: List[Dict[str, Any]],
@@ -33,7 +32,7 @@ class ChapterAligner:
         self.target_language = Language.from_iso_code_639_1(IsoCode639_1.from_str(target_language)) if target_language else None
         self.threads = threads
         self.align_model_encoder = Encoder(align_model)
-        self.splitter = ChapterSplitter(split_model)
+        self.splitter = Splitter(split_model)
         self.language_detector: LanguageDetector = LanguageDetectorBuilder.from_all_languages().build()
         self.log = logging.getLogger(__name__)
 
