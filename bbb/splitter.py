@@ -55,7 +55,7 @@ class SatWrapper(SplitterWrapper):
         return paragraphs
 
 
-class ChapterSplitter:
+class Splitter:
     def __init__(self, model_name):
         self.model_name = model_name
         self.models = {}

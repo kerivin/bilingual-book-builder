@@ -5,15 +5,17 @@ from typing import List, Dict, Any, Optional
 from ebooklib import epub
 import ebooklib
 import logging
+
 from bbb import progress
+from bbb.epub_file import EpubFile
 
 
 class BookBuilder:
-    def __init__(self, source_path: str, target_path: str, blocks: List[Dict[str, Any]],
+    def __init__(self, source_book: EpubFile, target_book: EpubFile, blocks: List[Dict[str, Any]],
                  copy_target_cover=False,
                  source_footnotes=None, target_footnotes=None):
-        self.source_path = source_path
-        self.target_path = target_path
+        self.source_book = source_book.ebook
+        self.target_book = target_book.ebook
         self.blocks = blocks
         self.copy_target_cover = copy_target_cover
         self.source_footnotes = source_footnotes or {}
@@ -81,7 +83,7 @@ class BookBuilder:
             return [val[0] for val in book.get_metadata('DC', key)] if book else []
 
         src_titles = get_metadata(self.source_book, 'title') if self.source_book else []
-        tgt_titles = get_metadata(self.target_book, 'title')
+        tgt_titles = get_metadata(self.target_book, 'title') if self.target_book else []
 
         title: str = ""
         if src_titles and tgt_titles:
@@ -344,15 +346,6 @@ class BookBuilder:
             return {'body_html': '', 'flat_title': '', 'toc_path': []}
 
     def run(self) -> epub.EpubBook | None:
-        self.source_book = epub.read_epub(self.source_path)
-        if not self.source_book:
-            self.log.error(f"Failed to read source EPUB file {self.source_path}.")
-            return None
-        self.target_book = epub.read_epub(self.target_path)
-        if not self.target_book:
-            self.log.error(f"Failed to read target EPUB file {self.target_path}.")
-            return None
-
         new_book = epub.EpubBook()
         self._copy_metadata(new_book)
         self._copy_cover(new_book)

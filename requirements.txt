@@ -1,2 +1,5 @@
 -e ./bertalign[gpu] #change to cpu if you don't have gpu
+
+pytest
+pyfakefs
 -e .
