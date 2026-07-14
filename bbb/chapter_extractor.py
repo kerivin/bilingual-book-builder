@@ -1,4 +1,5 @@
 import re
+import html
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -19,19 +20,20 @@ PARA_PLACEHOLDER = '__PARA__'
 
 
 def _normalize_text(raw):
-    text = re.sub(r'[^\S\n]+', ' ', raw) # multiple horizontal whitespace -> single space
-    text = re.sub(r' *\n *', '\n', text) # remove spaces adjacent to newlines
-    text = re.sub(r'\n{3,}', '\n\n', text) # at most two consecutive newlines
+    text = re.sub(r'[^\S\n]+', ' ', raw)
+    text = re.sub(r' *\n *', '\n', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
 
 class ChapterExtractor:
     def __init__(self, path: str, force_show: bool = False,
-                 preview_words: int = 20, min_chars: int = 200):
+                 preview_words: int = 20, min_chars: int = 200, fn_prefix: str = 'S_'):
         self.doc = Document(path)
         self.force_show = force_show
-        self.min_chars = min_chars
         self.preview_words = preview_words
+        self.min_chars = min_chars
+        self.fn_prefix = fn_prefix
         self.log = logging.getLogger(__name__)
 
         rootfile_path = self.doc.container.rootfile_path
@@ -41,19 +43,20 @@ class ChapterExtractor:
         self._spine_idrefs: List[str] = []
         self._build_spine_info()
 
-    def get_chapter_list(self) -> List[Dict[str, Any]]:
+    def get_chapter_list(self) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
         self.log.info("Extracting chapters via ToC...")
+        self.footnotes = self._build_global_footnote_map()
         toc_chapters = self._extract_from_toc()
         if toc_chapters and len(toc_chapters) >= 2:
-            return toc_chapters
+            return toc_chapters, self.footnotes
         self.log.info("Extracting chapters via headers...")
         h_chapters = self._extract_via_headers()
         if h_chapters and len(h_chapters) >= 2:
-            return h_chapters
+            return h_chapters, self.footnotes
         elif toc_chapters:
-            return toc_chapters
+            return toc_chapters, self.footnotes
         else:
-            return h_chapters
+            return h_chapters, self.footnotes
 
     def _show_chapters(self, chapters: List[Dict[str, Any]]) -> None:
         if not self.force_show:
@@ -67,8 +70,9 @@ class ChapterExtractor:
                 utils.print_horizontal_line(self.log.info)
 
     def _create_chapter(self, display_path: List[str], toc_path: List[str],
-                        full_text: str, item_id: Optional[str] = None) -> Dict[str, Any]:
-        return {
+                        full_text: str, item_id: Optional[str] = None,
+                        footnote_refs: Optional[List] = None) -> Dict[str, Any]:
+        ch = {
             "display_path": display_path,
             "toc_path": toc_path,
             "full_text": full_text,
@@ -77,6 +81,68 @@ class ChapterExtractor:
                        + ("…" if len(full_text.split()) > self.preview_words else ""),
             "item_id": item_id
         }
+        if footnote_refs is not None:
+            ch["footnote_refs"] = footnote_refs
+        return ch
+
+    def _build_global_footnote_map(self) -> Dict[str, str]:
+        import re
+        footnote_bodies = {}
+        candidate_ids = set()
+        title_fallbacks = {}
+
+        manifest = self.doc.package.manifest
+        xhtml_hrefs = [self._make_full_path(item['href']) for item in manifest.items
+                       if item.get('href', '').lower().endswith(('.xhtml', '.html', '.xml'))]
+
+        for full_href in xhtml_hrefs:
+            soup = self._load_soup(full_href)
+            if not soup:
+                continue
+            for a_tag in soup.find_all('a', href=True):
+                is_fn, fragment = self._is_footnote_reference(a_tag)
+                if is_fn:
+                    candidate_ids.add(fragment)
+                    title = a_tag.get('title', '').strip()
+                    if title:
+                        title_fallbacks[fragment] = title
+
+        for full_href in xhtml_hrefs:
+            soup = self._load_soup(full_href)
+            if not soup:
+                continue
+            for fid in list(candidate_ids):
+                elem = soup.find(id=fid)
+                if elem is None:
+                    continue
+                marker_text = elem.get_text(strip=True)
+                if re.fullmatch(r'[\d]+|[∗*†‡§¶‖]|\[\d+\]|\(\d+\)', marker_text):
+                    body_parts = []
+                    for sibling in elem.find_next_siblings():
+                        if sibling.get('id') or sibling.name in HEADING_TAGS:
+                            break
+                        body_parts.append(str(sibling))
+                    footnote_bodies[fid] = ''.join(body_parts)
+                else:
+                    footnote_bodies[fid] = ''.join(str(c) for c in elem.contents)
+                candidate_ids.remove(fid)
+
+        for fid in candidate_ids:
+            if fid in title_fallbacks:
+                footnote_bodies[fid] = html.escape(title_fallbacks[fid])
+
+        for fid in footnote_bodies:
+            body_html = footnote_bodies[fid]
+            if not body_html:
+                continue
+            body_soup = BeautifulSoup(body_html, 'html.parser')
+            for a_tag in body_soup.find_all('a', href=True):
+                href = a_tag['href'].strip()
+                if not href.lower().startswith(('http://', 'https://')):
+                    a_tag.decompose()
+            footnote_bodies[fid] = str(body_soup)
+
+        return footnote_bodies
 
     def _build_spine_info(self) -> None:
         manifest_items = {item['id']: item['href'] for item in self.doc.package.manifest.items}
@@ -163,11 +229,51 @@ class ChapterExtractor:
         except (ValueError, AttributeError, KeyError):
             return None
 
-    def _clean_soup(self, soup: BeautifulSoup) -> None:
+    def _clean_soup(self, soup: BeautifulSoup, handle_footnotes: bool = True) -> None:
         for tag in soup(TAG_BLACKLIST):
             tag.decompose()
         for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
             comment.extract()
+        if handle_footnotes:
+            self._remove_footnotes(soup)
+
+    def _is_footnote_reference(self, a_tag):
+        href = a_tag.get('href', '')
+        if '#' not in href:
+            return False, None
+        fragment = href.split('#', 1)[1]
+        if not fragment:
+            return False, None
+        has_sup = a_tag.find_parent('sup') is not None or a_tag.find('sup') is not None
+        text = a_tag.get_text(strip=True)
+        is_marker = bool(re.fullmatch(r'[\d]+|[∗*†‡§¶‖]|\[\d+\]|\(\d+\)', text))
+        if has_sup or is_marker:
+            return True, fragment
+        return False, None
+
+    def _remove_footnotes(self, soup: BeautifulSoup) -> None:
+        self._current_footnote_refs = []
+
+        for fid in self.footnotes:
+            elem = soup.find(id=fid)
+            if elem:
+                elem.decompose()
+
+        counter = 0
+        for a_tag in soup.find_all('a', href=True):
+            is_fn, fragment = self._is_footnote_reference(a_tag)
+            if not is_fn:
+                continue
+            if fragment not in self.footnotes:
+                continue
+
+            counter += 1
+            token = f' {self.fn_prefix}FNREF_{counter} '
+            self._current_footnote_refs.append({
+                'token': self.fn_prefix + f'FNREF_{counter}',
+                'target_id': fragment
+            })
+            a_tag.replace_with(token)
 
     @staticmethod
     def _is_simple_number_text(text: str) -> bool:
@@ -228,8 +334,8 @@ class ChapterExtractor:
         return self._get_heading_text(target)
 
     def _extract_text(self, soup: BeautifulSoup, anchor_elements: Optional[Dict[str, Any]] = None,
-                      root_id: Optional[str] = None):
-        self._clean_soup(soup)
+                      root_id: Optional[str] = None, handle_footnotes = True):
+        self._clean_soup(soup, handle_footnotes)
         for br in soup.find_all('br'):
             br.replace_with(TEXT_BR_PLACEHOLDER)
 
@@ -397,6 +503,7 @@ class ChapterExtractor:
                 anchor_elements[ROOT_ID] = root_elem
 
             section_texts = self._extract_text(soup, anchor_elements, root_id=root_id)
+            current_footnote_refs = getattr(self, '_current_footnote_refs', [])
 
             for entry in file_entries:
                 sec_id = entry["anchor"] if entry["anchor"] is not None else ROOT_ID
@@ -413,6 +520,7 @@ class ChapterExtractor:
                     toc_path=toc_path,
                     full_text=text,
                     item_id=self._spine_idrefs[idx],
+                    footnote_refs=current_footnote_refs,
                 ))
 
         for i, ch in enumerate(chapters):
@@ -432,14 +540,14 @@ class ChapterExtractor:
             if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
 
-            self._clean_soup(soup)
+            self._clean_soup(soup, handle_footnotes=False)
             headings_in_this_file = []
             for h_tag in soup.find_all(HEADING_TAGS):
                 raw = h_tag.get_text(separator='\n').strip()
                 title = self._clean_heading(raw)
                 headings_in_this_file.append(title)
 
-            file_text = self._extract_text(soup)
+            file_text = self._extract_text(soup, handle_footnotes=False)
             if not file_text:
                 continue
 
