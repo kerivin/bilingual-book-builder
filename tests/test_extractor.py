@@ -133,3 +133,226 @@ def test_empty_book(fs):
     epub_file = EpubFile(path)
     chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     assert chapters == []
+
+
+def test_footnote_simple_sup(fs):
+    """Basic superscript footnote: link in <sup>, body in same file.
+    Header fallback does NOT remove footnotes, so body text remains."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Before<a id="fnref1" href="#fn1"><sup>1</sup></a>after.</p>
+    <p id="fn1">This is the note.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert len(fn_map) == 1
+    assert fn_map.get("fn1", "") == "This is the note."
+    assert len(chapters) == 1
+    text = chapters[0]["full_text"]
+    # No tokens; raw text with marker and footnote body still present
+    assert "S_FNREF_1" not in text
+    assert "Before1after." in text
+    assert "This is the note." in text
+
+
+def test_footnote_numeric_without_sup(fs):
+    """Footnote link without sup but with numeric marker – raw marker remains."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Text<a id="fnref1" href="#fn1">1</a> end.</p>
+    <p id="fn1">Note 1.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert fn_map.get("fn1") == "Note 1."
+    text = chapters[0]["full_text"]
+    assert "S_FNREF_1" not in text
+    assert "Text1 end." in text
+    assert "Note 1." in text
+
+
+def test_footnote_bracket_marker(fs):
+    """Footnote with marker like [1] – kept in chapter text."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>X<a href="#fn1">[1]</a>Y</p>
+    <p id="fn1">Bracket note.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert fn_map.get("fn1") == "Bracket note."
+    text = chapters[0]["full_text"]
+    assert "S_FNREF_1" not in text
+    assert "X[1]Y" in text
+    assert "Bracket note." in text
+
+
+def test_footnote_symbol_marker(fs):
+    """Footnote with symbol marker like '*' – kept in chapter text."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Word<a href="#fnstar"><sup>*</sup></a>.</p>
+    <p id="fnstar">Asterisk note.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert fn_map.get("fnstar") == "Asterisk note."
+    text = chapters[0]["full_text"]
+    assert "S_FNREF_1" not in text
+    assert "Word*." in text
+    assert "Asterisk note." in text
+
+
+def test_multiple_footnotes_same_chapter(fs):
+    """Multiple footnotes – all markers and bodies remain in text."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>A<a id="r1" href="#n1"><sup>1</sup></a> B<a id="r2" href="#n2"><sup>2</sup></a> C</p>
+    <p id="n1">First note.</p>
+    <p id="n2">Second note.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert len(fn_map) == 2
+    assert fn_map["n1"] == "First note."
+    assert fn_map["n2"] == "Second note."
+    text = chapters[0]["full_text"]
+    assert "S_FNREF_1" not in text
+    assert "S_FNREF_2" not in text
+    assert "A1 B2 C" in text
+    assert "First note." in text
+    assert "Second note." in text
+
+
+def test_footnote_cross_file(fs):
+    """Footnote body in a different file – not present in chapter text."""
+    ch_html = """<html><body>
+    <h1>Chapter</h1>
+    <p>Text<a href="notes.xhtml#note1"><sup>1</sup></a> end.</p>
+    </body></html>"""
+    notes_html = """<html><body>
+    <h1>Notes</h1>
+    <p id="note1">This is a cross-file note.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([
+        {"filename": "chapter.xhtml", "content": ch_html},
+        {"filename": "notes.xhtml", "content": notes_html}
+    ])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    ch_text = chapters[0]["full_text"]
+    # No token, just the marker; note body is not in this file
+    assert "S_FNREF_1" not in ch_text
+    assert "Text1 end." in ch_text
+    assert "cross-file note" not in ch_text
+    assert fn_map.get("note1") == "This is a cross-file note."
+
+
+def test_footnote_inside_heading(fs):
+    """Footnote reference inside an <h1> – heading text includes the marker."""
+    html = """<html><body>
+    <h1>Chapter 1<a href="#fn1"><sup>1</sup></a></h1>
+    <p>Body text.</p>
+    <p id="fn1">Note in heading.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    # heading now contains the marker "1" because header fallback doesn't remove footnotes
+    assert chapters[0]["display_path"][0] == "Chapter 1\n1"
+    text = chapters[0]["full_text"]
+    # Body text remains; heading text is not in body
+    assert "Body text." in text
+    assert fn_map.get("fn1") == "Note in heading."
+
+
+def test_footnote_body_with_formatting(fs):
+    """Footnote body contains <i>, <b> – preserved as HTML string."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Text<a href="#fn1"><sup>1</sup></a></p>
+    <p id="fn1"><i>Italic</i> note <b>bold</b>.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    note = fn_map["fn1"]
+    assert "<i>" in note and "<b>" in note
+    assert "Italic" in note
+
+
+def test_footnote_body_strips_internal_links(fs):
+    """Footnote body contains <a href="#somewhere"> – link and its text are removed."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Text<a href="#fn1"><sup>1</sup></a></p>
+    <div id="fn1">Return to <a href="#ref1">text</a>.</div>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    note = fn_map["fn1"]
+    # Link and its text are completely removed -> "Return to ."
+    assert "Return to" in note
+    assert "." in note
+    assert "text" not in note
+    assert "<a" not in note
+
+
+def test_footnote_body_multi_paragraph(fs):
+    """Footnote body consists of multiple siblings – all collected."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Text<a href="#fn1"><sup>1</sup></a></p>
+    <div id="fn1"><p>Para1.</p><p>Para2.</p></div>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    note = fn_map["fn1"]
+    assert "Para1." in note
+    assert "Para2." in note
+
+
+def test_footnote_refs_list_in_chapter(fs):
+    """Header fallback does NOT add footnote_refs to chapters."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Text<a href="#noteA"><sup>1</sup></a> more <a href="#noteB"><sup>2</sup></a> end.</p>
+    <p id="noteA">A</p>
+    <p id="noteB">B</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert "footnote_refs" not in chapters[0]
+
+
+def test_footnote_title_fallback(fs):
+    """If footnote body not found, fallback to title attribute."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Ref<a href="#missing" title="Fallback note">*</a>.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert "missing" in fn_map
+    assert fn_map["missing"] == "Fallback note"
