@@ -1,6 +1,8 @@
-from ebooklib import epub
+import os
 import logging
 from typing import Literal
+
+from ebooklib import epub
 
 from bbb import progress
 from bbb.epub_file import EpubFile
@@ -35,8 +37,8 @@ class BBB:
             ):
         self.source_path = source_path
         self.target_path = target_path
-        self.source_language = source_language
-        self.target_language = target_language
+        self.source_language = source_language.lower() if source_language else None
+        self.target_language = target_language.lower() if target_language else None
         self.output = output
         self.manual = manual
         self.threads = threads
@@ -57,6 +59,18 @@ class BBB:
         return SentenceTransformer(self.align_model)
 
     def run(self):
+        if not os.path.isfile(self.source_path) or not os.path.isfile(self.target_path):
+            self.log.error("Not a file.")
+            return
+        
+        if os.path.samefile(self.source_path, self.target_path):
+            self.log.error("Source and target files are the same.")
+            return
+
+        if self.source_language is not None and self.target_language is not None and self.source_language == self.target_language:
+            self.log.error("Source and target languages are the same.")
+            return
+
         source_book = EpubFile(self.source_path)
         if not source_book:
             self.log.error(f"Failed to read source EPUB file {self.source_path}.")

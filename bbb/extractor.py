@@ -88,7 +88,6 @@ class Extractor:
         return ch
 
     def _build_global_footnote_map(self) -> Dict[str, str]:
-        import re
         footnote_bodies = {}
         candidate_ids = set()
         title_fallbacks = {}
