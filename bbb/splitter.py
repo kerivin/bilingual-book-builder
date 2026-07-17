@@ -35,11 +35,18 @@ class SimpleWrapper(SplitterWrapper):
 
 class SatWrapper(SplitterWrapper):
     def __init__(self, language: Language, model_name):
-        self.splitter = SaT(
-            model_name_or_model=model_name,
-            language=language.iso_code_639_1.name.lower() if language else None,
-            style_or_domain='ud' if language else None,
-        )
+        try:
+            self.splitter = SaT(
+                model_name_or_model=model_name,
+                language=language.iso_code_639_1.name.lower() if language else None,
+                style_or_domain='ud' if language else None,
+            )
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"SaT: couldn't find language-specific adaptation, using common model instead")
+            self.splitter = SaT(
+                model_name_or_model=model_name,
+            )
+
 
     def split(self, text) -> list[list[str]]:
         paragraphs = []
