@@ -12,7 +12,7 @@ class SplitterWrapper:
 
 class SimpleWrapper(SplitterWrapper):
     def __init__(self, language: Language):
-        self.splitter = SentenceSplitter(language.iso_code_639_1.name.lower())
+        self.splitter = SentenceSplitter(language.iso_code_639_1.name.lower() if language else 'en')
 
     def split(self, text) -> list[list[str]]:
         paragraphs = []
