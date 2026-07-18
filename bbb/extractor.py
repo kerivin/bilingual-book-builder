@@ -3,21 +3,20 @@ import html
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 
 from bs4 import BeautifulSoup, NavigableString, Comment
 
 from bbb import progress, utils
 from bbb.epub_file import EpubFile
+from bbb.html_tokenizer import tokenize, Token
 
 HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 HEADINGISH_TAGS = {'hgroup', *HEADING_TAGS}
 BLOCK_TAGS = {'p', 'div', 'li', 'blockquote', *HEADING_TAGS}
-HGROUP_BLOCKS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div', 'blockquote']
 TAG_BLACKLIST = {'script', 'style', 'img', 'figure', 'svg', 'canvas'}
 BR_PLACEHOLDER = '\uE000'
 TEXT_BR_PLACEHOLDER = '__BR__'
-PARA_PLACEHOLDER = '__PARA__'
 DEFAULT_ANCHOR_KEY = '__default__'
 
 
@@ -73,7 +72,9 @@ class Extractor:
 
     def _create_chapter(self, display_path: List[str], toc_path: List[str],
                         full_text: str, item_id: Optional[str] = None,
-                        footnote_refs: Optional[List] = None) -> Dict[str, Any]:
+                        footnote_refs: Optional[List] = None,
+                        paragraph_tokens: Optional[List] = None,
+                        body_class: str = '') -> Dict[str, Any]:
         ch = {
             "display_path": display_path,
             "toc_path": toc_path,
@@ -85,6 +86,10 @@ class Extractor:
         }
         if footnote_refs is not None:
             ch["footnote_refs"] = footnote_refs
+        if paragraph_tokens is not None:
+            ch["paragraph_tokens"] = paragraph_tokens
+        if body_class:
+            ch["body_class"] = body_class
         return ch
 
     def _build_global_footnote_map(self) -> Dict[str, str]:
@@ -183,7 +188,6 @@ class Extractor:
         }
         if not soup.body:
             return False
-
         for tag in soup.body.descendants:
             if not hasattr(tag, 'get'):
                 continue
@@ -192,11 +196,9 @@ class Extractor:
                 continue
             if any(t in etype.split() for t in keep_types):
                 return False
-
         body_etype = soup.body.get('epub:type', '')
         if isinstance(body_etype, str) and ('frontmatter' in body_etype or 'backmatter' in body_etype):
             return True
-
         for child in soup.body.find_all(True, recursive=False):
             etype = child.get('epub:type', '')
             if isinstance(etype, str) and ('frontmatter' in etype or 'backmatter' in etype):
@@ -213,7 +215,6 @@ class Extractor:
         for prefix in ('xhtml/', 'text/', 'OEBPS/', 'OEBPS/text/', 'OEBPS/xhtml/'):
             candidates.append(self._make_full_path(f"{prefix}{base}"))
             candidates.append(self._make_full_path(f"{prefix}{Path(base).name}"))
-
         seen = set()
         unique_candidates = [c for c in candidates if not (c in seen or seen.add(c))]
         for cand in unique_candidates:
@@ -221,6 +222,10 @@ class Extractor:
                 return self._spine_full_hrefs.index(cand)
             except ValueError:
                 continue
+        target_basename = Path(base).name
+        for i, spine_href in enumerate(self._spine_full_hrefs):
+            if Path(spine_href).name == target_basename:
+                return i
         return None
 
     def _load_soup(self, full_href: str) -> Optional[BeautifulSoup]:
@@ -254,12 +259,10 @@ class Extractor:
 
     def _remove_footnotes(self, soup: BeautifulSoup) -> None:
         self._current_footnote_refs = []
-
         for fid in self.footnotes:
             elem = soup.find(id=fid)
             if elem:
                 elem.decompose()
-
         counter = 0
         for a_tag in soup.find_all('a', href=True):
             is_fn, fragment = self._is_footnote_reference(a_tag)
@@ -267,7 +270,6 @@ class Extractor:
                 continue
             if fragment not in self.footnotes:
                 continue
-
             counter += 1
             token = f'{self.fn_prefix}FNREF_{counter}'
             self._current_footnote_refs.append({
@@ -276,119 +278,84 @@ class Extractor:
             })
             a_tag.replace_with(token)
 
-    @staticmethod
-    def _is_simple_number_text(text: str) -> bool:
-        stripped = text.strip().strip('()[]{}"\'-–—')
-        return bool(stripped) and bool(re.fullmatch(r'[0-9IVXLCDMivxlcdm]+', stripped))
-
-    def _is_numeric_roman_block(self, elem) -> bool:
-        content = elem.get_text(separator=' ', strip=True)
-        return self._is_simple_number_text(content)
-
-    def _clean_heading(self, raw: str) -> str:
-        cleaned = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw)
-        return cleaned or raw
-
     def _get_heading_text(self, elem) -> str:
         if elem is None:
             return ""
         for br in elem.find_all('br'):
-            br.replace_with(BR_PLACEHOLDER)
-
-        parts = []
-        def walk(node):
-            if isinstance(node, NavigableString):
-                parts.append(str(node))
-                return
-            if not hasattr(node, 'name'):
-                return
-            for child in node.children:
-                walk(child)
-        walk(elem)
-
-        raw = ''.join(parts)
-        text = re.sub(r'\s+', ' ', raw)
-        text = text.replace(BR_PLACEHOLDER, '\n')
-        return text.strip()
-
-    def _find_first_heading(self, elem):
-        if elem is None:
-            return None
-        if elem.name in HEADINGISH_TAGS:
-            return elem
-        for tag in HEADINGISH_TAGS:
-            found = elem.find(tag)
-            if found:
-                return found
-        return None
+            br.replace_with('\n')
+        return elem.get_text().strip()
 
     def _extract_heading_with_newlines(self, elem) -> str:
         if elem is None:
             return ""
-        target = self._find_first_heading(elem)
-        if target is None:
-            return ""
-        if target.name == 'hgroup':
-            blocks = target.find_all(HGROUP_BLOCKS, recursive=False)
-            parts = [t for b in blocks if (t := self._get_heading_text(b))]
-            return '\n'.join(parts)
-        return self._get_heading_text(target)
+        if elem.name in HEADINGISH_TAGS:
+            return self._get_heading_text(elem)
+        for tag in HEADINGISH_TAGS:
+            found = elem.find(tag)
+            if found:
+                return self._get_heading_text(found)
+        return ""
 
-    def _extract_text(self, soup: BeautifulSoup, anchor_elements: Optional[Dict[str, Any]] = None,
-                      root_id: Optional[str] = None, handle_footnotes = True):
-        self._clean_soup(soup, handle_footnotes)
-        for br in soup.find_all('br'):
-            br.replace_with(TEXT_BR_PLACEHOLDER)
+    def _extract_paragraphs_and_tokens(self, soup: BeautifulSoup,
+                                       anchor_elements: Dict[str, Any],
+                                       root_id: Optional[str] = None):
+        body = soup.body if soup.body else soup
+        if root_id is not None and root_id not in anchor_elements:
+            root_id = None
 
-        root = soup.body if soup.body else soup
+        anchor_paragraphs = defaultdict(list)
+        current_anchor = root_id
 
-        if not anchor_elements:
-            anchor_elements = {DEFAULT_ANCHOR_KEY: root}
-            if root_id is None:
-                root_id = DEFAULT_ANCHOR_KEY
+        def process_block(block_elem):
+            if current_anchor is None:
+                return
+            tokens = tokenize(block_elem)
+            if tokens:
+                anchor_paragraphs[current_anchor].append(tokens)
 
-        anchor_texts = OrderedDict((aid, []) for aid in anchor_elements)
-        current_anchor = root_id if root_id in anchor_elements else None
-
-        def walk(node):
+        def walk_children(node):
             nonlocal current_anchor
             if isinstance(node, NavigableString):
-                if current_anchor is not None:
-                    anchor_texts[current_anchor].append(str(node))
+                text = str(node)
+                if text.strip() and current_anchor is not None:
+                    anchor_paragraphs[current_anchor].append([Token('text', text, len(text))])
                 return
             if not hasattr(node, 'name'):
                 return
 
-            anchor_id = node.get('id') if node.get('id') in anchor_elements else None
-            if anchor_id is not None:
-                current_anchor = anchor_id
-                if node.name in HEADINGISH_TAGS:
-                    return
-            elif root_id and node is anchor_elements.get(root_id):
-                current_anchor = root_id
-                if node.name in HEADINGISH_TAGS:
-                    return
-
-            if node.name in HEADING_TAGS:
+            if hasattr(node, 'get') and node.get('id') in anchor_elements:
+                old = current_anchor
+                current_anchor = node.get('id')
+                for child in node.children:
+                    walk_children(child)
+                current_anchor = old
                 return
 
-            if node.name in BLOCK_TAGS and self._is_numeric_roman_block(node):
-                return
+            if node.name in BLOCK_TAGS:
+                # Do NOT skip numeric/Roman blocks – they may be chapter titles.
+                process_block(node)
+            else:
+                for child in node.children:
+                    walk_children(child)
 
-            if node.name in BLOCK_TAGS and current_anchor is not None:
-                anchor_texts[current_anchor].append(PARA_PLACEHOLDER)
-
-            for child in node.children:
-                walk(child)
-
-        walk(root)
+        walk_children(body)
 
         result = {}
-        for aid, pieces in anchor_texts.items():
-            raw = ''.join(pieces)
-            raw = raw.replace(TEXT_BR_PLACEHOLDER, '\n').replace(PARA_PLACEHOLDER, '\n\n')
-            result[aid] = _normalize_text(raw)
+        for aid, para_list in anchor_paragraphs.items():
+            plain_paras = []
+            for tokens in para_list:
+                para_text = ''.join(t.content for t in tokens if t.kind == 'text')
+                plain_paras.append(para_text)
+            full_text = '\n\n'.join(plain_paras)
+            full_text = _normalize_text(full_text)
+            result[aid] = {'text': full_text, 'paragraph_tokens': para_list}
         return result
+
+    @staticmethod
+    def _is_numeric_roman_block(elem) -> bool:
+        content = elem.get_text(separator=' ', strip=True)
+        stripped = content.strip().strip('()[]{}"\'-–—')
+        return bool(stripped) and bool(re.fullmatch(r'[0-9IVXLCDMivxlcdm]+', stripped))
 
     def _extract_from_toc(self) -> List[Dict[str, Any]]:
         toc = self.doc.toc
@@ -429,87 +396,80 @@ class Extractor:
             soup = self._load_soup(entry["full_href"])
             if not soup:
                 continue
-            self._clean_soup(soup)
+            for tag in soup(TAG_BLACKLIST):
+                tag.decompose()
             heading_text = ""
             if entry["anchor"] is not None:
                 elem = soup.find(id=entry["anchor"])
-                if elem is not None:
-                    heading_text = self._extract_heading_with_newlines(elem)
+                heading_text = self._extract_heading_with_newlines(elem) if elem else ""
             else:
                 root = soup.body if soup.body else soup
                 heading_text = self._extract_heading_with_newlines(root)
             path_display_titles[entry["toc_path"]] = heading_text if heading_text else entry["label"]
 
-        grouped: Dict[int, List[dict]] = {}
-        order = []
+        grouped = defaultdict(list)
         for e in toc_entries:
-            idx = e["spine_index"]
-            if idx not in grouped:
-                grouped[idx] = []
-                order.append(idx)
-            grouped[idx].append(e)
+            grouped[e["spine_index"]].append(e)
+        order = sorted(grouped.keys())
 
         chapters = []
-        ROOT_ID = "__root__"
+        ROOT_ID = DEFAULT_ANCHOR_KEY
 
-        for idx in order:
-            file_entries = grouped[idx]
-            full_href = self._spine_full_hrefs[idx]
+        for spine_idx in order:
+            file_entries = grouped[spine_idx]
+            full_href = self._spine_full_hrefs[spine_idx]
             soup = self._load_soup(full_href)
             if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
 
-            anchors_in_this_file = set()
+            body_class = ' '.join(soup.body.get('class', [])) if soup.body else ''
+
+            anchor_ids_in_file = set()
             for entry in file_entries:
                 if entry["anchor"] is not None:
-                    anchors_in_this_file.add(entry["anchor"])
-            self.footnotes = {k: v for k, v in self.footnotes.items()
-                            if k not in anchors_in_this_file}
+                    anchor_ids_in_file.add(entry["anchor"])
 
-            parent_entry = None
-            child_entries = []
-            for entry in file_entries:
-                if entry["anchor"] is None:
-                    parent_entry = entry
-                else:
-                    child_entries.append(entry)
+            saved_footnotes = self.footnotes
+            self.footnotes = {k: v for k, v in self.footnotes.items() if k not in anchor_ids_in_file}
+            self._clean_soup(soup, handle_footnotes=True)
+            current_footnote_refs = self._current_footnote_refs
+            self.footnotes = saved_footnotes
 
             anchor_elements = {}
-            for entry in child_entries:
-                elem = soup.find(id=entry["anchor"])
-                if elem is not None:
-                    if elem.parent and elem.parent.name in HEADINGISH_TAGS:
-                        elem = elem.parent
-                    anchor_elements[entry["anchor"]] = elem
+            for entry in file_entries:
+                if entry["anchor"] is not None:
+                    elem = soup.find(id=entry["anchor"])
+                    if elem is not None:
+                        anchor_elements[entry["anchor"]] = elem
 
             root_id = None
-            if parent_entry is not None:
+            if any(e["anchor"] is None for e in file_entries):
                 root_id = ROOT_ID
                 first_heading = soup.find(HEADING_TAGS)
                 root_elem = first_heading if first_heading else (soup.body if soup.body else soup)
-                if first_heading and first_heading.parent and first_heading.parent.name in HEADINGISH_TAGS:
-                    root_elem = first_heading.parent
                 anchor_elements[ROOT_ID] = root_elem
 
-            section_texts = self._extract_text(soup, anchor_elements, root_id=root_id)
-            current_footnote_refs = getattr(self, '_current_footnote_refs', [])
+            section_data = self._extract_paragraphs_and_tokens(soup, anchor_elements, root_id=root_id)
 
             for entry in file_entries:
                 sec_id = entry["anchor"] if entry["anchor"] is not None else ROOT_ID
-                text = section_texts.get(sec_id, "")
+                data = section_data.get(sec_id)
+                if data is None:
+                    continue
+                text = data['text']
                 if len(text) < self.min_chars:
                     continue
-
                 toc_path = list(entry["toc_path"])
                 display_path = [path_display_titles.get(tuple(toc_path[:i+1]), toc_path[i])
                                 for i in range(len(toc_path))]
-
                 chapters.append(self._create_chapter(
                     display_path=display_path,
                     toc_path=toc_path,
                     full_text=text,
-                    item_id=self._spine_idrefs[idx],
+                    item_id=self._spine_idrefs[spine_idx],
                     footnote_refs=current_footnote_refs,
+                    paragraph_tokens=data['paragraph_tokens'],
+                    body_class=body_class
                 ))
 
         for i, ch in enumerate(chapters):
@@ -533,7 +493,7 @@ class Extractor:
             headings_in_this_file = []
             for h_tag in soup.find_all(HEADING_TAGS):
                 raw = h_tag.get_text(separator='\n').strip()
-                title = self._clean_heading(raw)
+                title = re.sub(r"^\[?\d+\]?\s*[-–—]?\s*\[?\d+\]?\s*", "", raw) or raw
                 headings_in_this_file.append(title)
 
             file_text = self._extract_text(soup, handle_footnotes=False)
@@ -573,3 +533,48 @@ class Extractor:
             ch["index"] = i
         self._show_chapters(chapters)
         return chapters
+
+    def _extract_text(self, soup: BeautifulSoup, anchor_elements=None, root_id=None, handle_footnotes=True):
+        self._clean_soup(soup, handle_footnotes)
+        for br in soup.find_all('br'):
+            br.replace_with(TEXT_BR_PLACEHOLDER)
+        root = soup.body if soup.body else soup
+        if not anchor_elements:
+            anchor_elements = {DEFAULT_ANCHOR_KEY: root}
+            if root_id is None:
+                root_id = DEFAULT_ANCHOR_KEY
+        anchor_texts = OrderedDict((aid, []) for aid in anchor_elements)
+        current_anchor = root_id if root_id in anchor_elements else None
+
+        def walk(node):
+            nonlocal current_anchor
+            if isinstance(node, NavigableString):
+                if current_anchor is not None:
+                    anchor_texts[current_anchor].append(str(node))
+                return
+            if not hasattr(node, 'name'):
+                return
+            anchor_id = node.get('id') if node.get('id') in anchor_elements else None
+            if anchor_id is not None:
+                current_anchor = anchor_id
+                if node.name in HEADINGISH_TAGS:
+                    return
+            elif root_id and node is anchor_elements.get(root_id):
+                current_anchor = root_id
+                if node.name in HEADINGISH_TAGS:
+                    return
+            if node.name in HEADING_TAGS:
+                return
+            if node.name in BLOCK_TAGS and self._is_numeric_roman_block(node):
+                return
+            if node.name in BLOCK_TAGS and current_anchor is not None:
+                anchor_texts[current_anchor].append('\n\n')
+            for child in node.children:
+                walk(child)
+        walk(root)
+        result = {}
+        for aid, pieces in anchor_texts.items():
+            raw = ''.join(pieces)
+            raw = raw.replace(TEXT_BR_PLACEHOLDER, '\n')
+            result[aid] = _normalize_text(raw)
+        return result

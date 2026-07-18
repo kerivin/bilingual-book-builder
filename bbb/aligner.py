@@ -8,6 +8,7 @@ import re
 from bbb import progress
 from bbb.splitter import Splitter
 from bbb.constants import SRC_FN_PREFIX, TGT_FN_PREFIX
+from bbb.html_tokenizer import rebuild_sentence
 from lingua import LanguageDetectorBuilder, LanguageDetector, Language, IsoCode639_1
 from sentence_transformers import SentenceTransformer
 from bertalign import Bertalign
@@ -37,7 +38,8 @@ class Aligner:
         self.log = logging.getLogger(__name__)
 
     def _align_pair(self, source_text: str, target_text: str,
-                    src_footnote_refs=None, tgt_footnote_refs=None) -> List[Dict[str, Any]]:
+                    src_footnote_refs=None, tgt_footnote_refs=None,
+                    src_tokens=None, tgt_tokens=None) -> List[Dict[str, Any]]:
         if not source_text.strip() or not target_text.strip():
             return []
 
@@ -55,40 +57,125 @@ class Aligner:
                 detected = self.language_detector.detect_languages_in_parallel_of(texts_to_detect)
             except Exception as e:
                 e.add_note("^ LanguageDetector")
-                raise
+                detected = []
             if detected:
                 if src_lang is None:
                     src_lang = detected[0]
                 if tgt_lang is None and len(detected) > 1:
                     tgt_lang = detected[1]
+            if src_lang is None:
+                src_lang = Language.ENGLISH
+                self.log.warning("Could not detect source language, defaulting to English.")
+            if tgt_lang is None:
+                tgt_lang = Language.ENGLISH
+                self.log.warning("Could not detect target language, defaulting to English.")
 
-        def process_side(text, prefix, fn_refs, lang):
-            if lang is None:
-                return [], [], [], []
-            paragraphs = self.splitter.run(text, lang)
-            flat_sentences = [s for p in paragraphs for s in p]
+        PARA_BREAK_PLACEHOLDER = '\uE001'
+
+        def process_side(text, prefix, fn_refs, lang, token_list):
             token_pattern = re.compile(rf'\s*{re.escape(prefix)}FNREF_(\d+)\s*')
-            clean_sentences = []
-            token_occurrences = []
-            for sent in flat_sentences:
-                found = token_pattern.findall(sent)
+
+            if token_list:
+                all_flat = []
+                all_clean = []
+                all_occurrences = []
+                all_htmls = []
+                all_para_sent_counts = []
+
+                for para_tokens in token_list:
+                    if not para_tokens:
+                        continue
+                    orig_text = ''.join(t.content for t in para_tokens if t.kind == 'text')
+                    if not orig_text.strip():
+                        continue
+
+                    # Replace ALL newlines with placeholder so the splitter never breaks the paragraph
+                    safe_text = orig_text.replace('\n', PARA_BREAK_PLACEHOLDER)
+                    try:
+                        para_split = self.splitter.run(safe_text, lang)
+                        if para_split:
+                            sentences = para_split[0]
+                        else:
+                            sentences = [safe_text]
+                    except Exception:
+                        sentences = [safe_text]
+
+                    # Restore newlines in each sentence
+                    sentences = [s.replace(PARA_BREAK_PLACEHOLDER, '\n') for s in sentences]
+
+                    pos = 0
+                    para_flat = []
+                    para_clean = []
+                    para_occurrences = []
+                    para_htmls = []
+                    for sent in sentences:
+                        idx = orig_text.find(sent, pos)
+                        if idx == -1:
+                            idx = orig_text.find(sent.strip(), pos)
+                        if idx == -1:
+                            idx = pos
+                        start = idx
+                        end = idx + len(sent)
+                        pos = end
+
+                        found = token_pattern.findall(sent)
+                        sent_tokens = []
+                        for num in found:
+                            token_str = f'{prefix}FNREF_{num}'
+                            fn_info = next((fn for fn in (fn_refs or []) if fn['token'] == token_str), None)
+                            if fn_info:
+                                sent_tokens.append({'token': token_str, 'target_id': fn_info['target_id']})
+                        clean = token_pattern.sub(' ', sent).strip()
+
+                        para_flat.append(sent)
+                        para_clean.append(clean)
+                        para_occurrences.append(sent_tokens)
+
+                        html, _ = rebuild_sentence(para_tokens, start, end)
+                        para_htmls.append(html)
+
+                    all_flat.extend(para_flat)
+                    all_clean.extend(para_clean)
+                    all_occurrences.extend(para_occurrences)
+                    all_htmls.extend(para_htmls)
+                    all_para_sent_counts.append(len(sentences))
+
+                paragraphs = []
+                idx = 0
+                for count in all_para_sent_counts:
+                    paragraphs.append(all_flat[idx:idx+count])
+                    idx += count
+
+                return paragraphs, all_flat, all_clean, all_occurrences, all_htmls
+
+            # Fallback: no token list
+            paragraphs = self.splitter.run(text, lang)
+            if not paragraphs:
+                return [], [], [], [], []
+            all_flat = [s for p in paragraphs for s in p]
+            all_clean = []
+            all_occurrences = []
+            for s in all_flat:
+                found = token_pattern.findall(s)
                 sent_tokens = []
                 for num in found:
                     token_str = f'{prefix}FNREF_{num}'
                     fn_info = next((fn for fn in (fn_refs or []) if fn['token'] == token_str), None)
                     if fn_info:
                         sent_tokens.append({'token': token_str, 'target_id': fn_info['target_id']})
-                token_occurrences.append(sent_tokens)
-                clean_sentences.append(token_pattern.sub(' ', sent).strip())
-            return paragraphs, flat_sentences, clean_sentences, token_occurrences
+                clean = token_pattern.sub(' ', s).strip()
+                all_clean.append(clean)
+                all_occurrences.append(sent_tokens)
+            return paragraphs, all_flat, all_clean, all_occurrences, all_flat
 
-        src_paras, src_flat, src_clean, src_sent_tokens = process_side(
-            source_text, SRC_FN_PREFIX, src_footnote_refs, src_lang)
-        tgt_paras, tgt_flat, tgt_clean, tgt_sent_tokens = process_side(
-            target_text, TGT_FN_PREFIX, tgt_footnote_refs, tgt_lang)
+        src_paras, src_flat, src_clean, src_sent_tokens, src_htmls = process_side(
+            source_text, SRC_FN_PREFIX, src_footnote_refs, src_lang, src_tokens)
+        tgt_paras, tgt_flat, tgt_clean, tgt_sent_tokens, tgt_htmls = process_side(
+            target_text, TGT_FN_PREFIX, tgt_footnote_refs, tgt_lang, tgt_tokens)
 
         if not src_flat or not tgt_flat:
-            return [[{'source': source_text, 'target': target_text}]]
+            return [[{'source': source_text, 'target': target_text,
+                      'source_html': source_text, 'target_html': target_text}]]
 
         src_bounds = [0] + list(accumulate(len(p) for p in src_paras))
 
@@ -124,6 +211,8 @@ class Aligner:
                     seg = {
                         'source': src_flat[i],
                         'target': '',
+                        'source_html': src_htmls[i] if i < len(src_htmls) else src_flat[i],
+                        'target_html': '',
                         'source_footnote_occurrences': src_sent_tokens[i],
                         'target_footnote_occurrences': []
                     }
@@ -138,11 +227,14 @@ class Aligner:
                     seg_list = para_segments.setdefault(current_para_idx, [])
                     if seg_list and seg_list[-1].get('target', None) is None:
                         seg_list[-1]['target'] = tgt_flat[j]
+                        seg_list[-1]['target_html'] = tgt_htmls[j] if j < len(tgt_htmls) else tgt_flat[j]
                         seg_list[-1]['target_footnote_occurrences'] = tgt_sent_tokens[j]
                     else:
                         seg_list.append({
                             'source': '',
                             'target': tgt_flat[j],
+                            'source_html': '',
+                            'target_html': tgt_htmls[j] if j < len(tgt_htmls) else tgt_flat[j],
                             'source_footnote_occurrences': [],
                             'target_footnote_occurrences': tgt_sent_tokens[j]
                         })
@@ -167,6 +259,8 @@ class Aligner:
 
             src_seg = '\n'.join(src_flat[i] for i in src_indices) if src_indices else ''
             tgt_seg = '\n'.join(tgt_flat[i] for i in tgt_indices) if tgt_indices else ''
+            src_html = '\n'.join(src_htmls[i] for i in src_indices) if src_indices else ''
+            tgt_html = '\n'.join(tgt_htmls[i] for i in tgt_indices) if tgt_indices else ''
 
             src_occurrences = []
             for i in (src_indices or []):
@@ -182,6 +276,8 @@ class Aligner:
             para_segments.setdefault(current_para_idx, []).append({
                 'source': src_seg,
                 'target': tgt_seg,
+                'source_html': src_html,
+                'target_html': tgt_html,
                 'source_footnote_occurrences': src_occurrences,
                 'target_footnote_occurrences': tgt_occurrences
             })
@@ -212,6 +308,8 @@ class Aligner:
                     'text': ch['full_text'] if target_index is None else None,
                     'index': ch['index'],
                     'footnote_refs': ch.get('footnote_refs', []),
+                    'paragraph_tokens': ch.get('paragraph_tokens', None),
+                    'body_class': ch.get('body_class', '')
                 }
 
             if target_index is not None:
@@ -222,6 +320,8 @@ class Aligner:
                     'text': ch['full_text'] if source_index is None else None,
                     'index': ch['index'],
                     'footnote_refs': ch.get('footnote_refs', []),
+                    'paragraph_tokens': ch.get('paragraph_tokens', None),
+                    'body_class': ch.get('body_class', '')
                 }
 
             output.append(block)
@@ -233,14 +333,16 @@ class Aligner:
                 tgt_text = self.target_chapters[tgt_idx]['full_text']
                 src_refs = self.source_chapters[src_idx].get('footnote_refs', [])
                 tgt_refs = self.target_chapters[tgt_idx].get('footnote_refs', [])
-                tasks.append((idx, src_text, tgt_text, src_refs, tgt_refs))
+                src_tokens = self.source_chapters[src_idx].get('paragraph_tokens', None)
+                tgt_tokens = self.target_chapters[tgt_idx].get('paragraph_tokens', None)
+                tasks.append((idx, src_text, tgt_text, src_refs, tgt_refs, src_tokens, tgt_tokens))
 
         with progress.phase('aligning', len(tasks), "Aligning chapters"):
             max_workers = max(1, self.threads)
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_idx = {
-                    executor.submit(self._align_pair, src, tgt, src_refs, tgt_refs): (idx, src, tgt)
-                    for idx, src, tgt, src_refs, tgt_refs in tasks
+                    executor.submit(self._align_pair, src, tgt, src_refs, tgt_refs, src_tok, tgt_tok): (idx, src, tgt)
+                    for idx, src, tgt, src_refs, tgt_refs, src_tok, tgt_tok in tasks
                 }
                 for future in as_completed(future_to_idx):
                     idx, src_text, tgt_text = future_to_idx[future]
@@ -248,7 +350,8 @@ class Aligner:
                         alignment = future.result()
                     except Exception as e:
                         self.log.error(f"Error aligning chapter pair {idx}: {e}")
-                        alignment = [[{'source': src_text, 'target': tgt_text}]]
+                        alignment = [[{'source': src_text, 'target': tgt_text,
+                                       'source_html': src_text, 'target_html': tgt_text}]]
                     output[idx]['alignment'] = alignment
                     progress.update('aligning')
 
