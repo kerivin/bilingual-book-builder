@@ -1,6 +1,6 @@
 # bilingual-book-builder
 
-<img width="300" align="left" alt="Screenshot" src="https://github.com/user-attachments/assets/4431d770-a0c6-4af6-ba49-cf1a7e1a0565" />
+<img width="300" alt="Screenshot" src="https://github.com/user-attachments/assets/4431d770-a0c6-4af6-ba49-cf1a7e1a0565" />
 
 Builds a parallel text ePub with sentences aligned side-by-side from two ePubs of the same book in different languages.
 
@@ -11,8 +11,6 @@ Builds a parallel text ePub with sentences aligned side-by-side from two ePubs o
 or,
 
 online on [HuggingFace](https://huggingface.co/spaces/cringo/bbb) (blocked in some regions, use proxy/VPN) (also, quite slow)
-
-<br clear="left"/>
 
 ## Supported Languages
 
@@ -114,3 +112,4 @@ The code is AI-assisted.
 - Bold, italics, etc styles are lost
 - Some readers still display the table borders even thought they are transparent
 - Should I clean titles not tagged as titles leaking into the chapter body?
+- Now I only build side-dy-side horizontal alignment, maybe I should add translation-after-original vertical alignment
