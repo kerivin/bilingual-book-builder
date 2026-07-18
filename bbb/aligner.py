@@ -1,9 +1,8 @@
 import numpy as np
-from enum import IntEnum
+import html
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
-from itertools import accumulate
 import re
 
 from bbb import progress
@@ -34,6 +33,7 @@ class Aligner:
         self.target_language = Language.from_iso_code_639_1(IsoCode639_1.from_str(target_language)) if target_language else None
         self.threads = threads
         self.align_model_encoder = Encoder(align_model)
+        self.align_model = align_model
         self.splitter = Splitter(split_model)
         self.language_detector: LanguageDetector = LanguageDetectorBuilder.from_all_languages().build()
         self.log = logging.getLogger(__name__)
@@ -58,16 +58,40 @@ class Aligner:
 
         PARA_PLACEHOLDER = '\uE001'
 
-        def process_side(token_list, prefix, fn_refs, lang):
-            para_sentences = []
-            para_cleans = []
-            para_htmls = []
-            para_occs = []
+        def process_side(token_list, prefix, fn_refs, lang, full_text):
+            all_flat = []
+            all_clean = []
+            all_htmls = []
+            all_occs = []
 
             token_pattern = re.compile(rf'\s*{re.escape(prefix)}FNREF_(\d+)\s*')
             fn_lookup = {}
             for fn in (fn_refs or []):
                 fn_lookup[fn['token']] = fn['target_id']
+
+            if token_list is None:
+                try:
+                    paragraphs = self.splitter.run(full_text, lang)
+                except Exception:
+                    paragraphs = [[full_text]]
+                if not paragraphs:
+                    paragraphs = [[full_text]]
+
+                all_flat = [s for p in paragraphs for s in p]
+                for sent in all_flat:
+                    found = token_pattern.findall(sent)
+                    occ = []
+                    clean = sent
+                    for num in found:
+                        token_str = f'{prefix}FNREF_{num}'
+                        if token_str in fn_lookup:
+                            occ.append({'token': token_str, 'target_id': fn_lookup[token_str]})
+                        clean = clean.replace(token_str, ' ')
+                    clean = re.sub(r'\s+', ' ', clean).strip()
+                    all_clean.append(clean)
+                    all_occs.append(occ)
+                    all_htmls.append(html.escape(sent))
+                return all_flat, all_clean, all_htmls, all_occs
 
             for para_tokens in token_list:
                 if not para_tokens:
@@ -89,7 +113,6 @@ class Aligner:
                 sentences = [s.replace(PARA_PLACEHOLDER, '\n\n') for s in sentences]
 
                 pos = 0
-                s_list, c_list, h_list, o_list = [], [], [], []
                 for sent in sentences:
                     idx = orig_text.find(sent, pos)
                     if idx == -1:
@@ -109,174 +132,159 @@ class Aligner:
                         clean = clean.replace(m.group(), ' ')
                     clean = re.sub(r'\s+', ' ', clean).strip()
 
-                    s_list.append(sent)
-                    c_list.append(clean)
-                    o_list.append(occ)
-                    html, _ = rebuild_sentence(para_tokens, start, end)
-                    h_list.append(html)
+                    all_flat.append(sent)
+                    all_clean.append(clean)
+                    all_occs.append(occ)
 
-                para_sentences.append(s_list)
-                para_cleans.append(c_list)
-                para_htmls.append(h_list)
-                para_occs.append(o_list)
+                    html_str, _ = rebuild_sentence(para_tokens, start, end)
+                    all_htmls.append(html_str)
 
-            flat_s = [s for p in para_sentences for s in p]
-            flat_c = [s for p in para_cleans for s in p]
-            flat_h = [h for p in para_htmls for h in p]
-            flat_o = [o for p in para_occs for o in p]
-            para_bounds = [0] + list(accumulate(len(p) for p in para_sentences))
-            return (para_sentences, para_cleans, para_htmls, para_occs,
-                    flat_s, flat_c, flat_h, flat_o, para_bounds)
+            return all_flat, all_clean, all_htmls, all_occs
 
-        (src_paras, src_paracleans, src_parahtmls, src_paraoccs,
-         src_flat, src_clean, src_htmls, src_occs, src_bounds) = process_side(
-            src_tokens, SRC_FN_PREFIX, src_footnote_refs, src_lang)
-        (tgt_paras, tgt_paracleans, tgt_parahtmls, tgt_paraoccs,
-         tgt_flat, tgt_clean, tgt_htmls, tgt_occs, tgt_bounds) = process_side(
-            tgt_tokens, TGT_FN_PREFIX, tgt_footnote_refs, tgt_lang)
+        src_flat, src_clean, src_htmls, src_occs = process_side(
+            src_tokens, SRC_FN_PREFIX, src_footnote_refs, src_lang, source_text)
+        tgt_flat, tgt_clean, tgt_htmls, tgt_occs = process_side(
+            tgt_tokens, TGT_FN_PREFIX, tgt_footnote_refs, tgt_lang, target_text)
 
         if not src_flat or not tgt_flat:
             return [[{'source': source_text, 'target': target_text,
                       'source_html': source_text, 'target_html': target_text}]]
 
-        def embed_sents(sentences):
-            return self.align_model_encoder.model.encode(sentences, convert_to_numpy=True, show_progress_bar=False)
+        src_embs = self.align_model.encode(src_clean, convert_to_numpy=True, show_progress_bar=False)
+        tgt_embs = self.align_model.encode(tgt_clean, convert_to_numpy=True, show_progress_bar=False)
+        src_embs = src_embs / (np.linalg.norm(src_embs, axis=1, keepdims=True) + 1e-9)
+        tgt_embs = tgt_embs / (np.linalg.norm(tgt_embs, axis=1, keepdims=True) + 1e-9)
 
-        src_sent_embs = embed_sents(src_clean)
-        tgt_sent_embs = embed_sents(tgt_clean)
+        try:
+            bert = Bertalign(
+                model_encoder=self.align_model_encoder,
+                source_sentences=src_clean,
+                target_sentences=tgt_clean,
+            )
+            bert.align_sents()
+            raw_pairs = bert.result
+        except Exception as e:
+            self.log.warning(f"Bertalign failed: {e}, falling back to 1-to-1 alignment.")
+            max_len = max(len(src_flat), len(tgt_flat))
+            raw_pairs = [([i] if i < len(src_flat) else [], [i] if i < len(tgt_flat) else [])
+                         for i in range(max_len)]
 
-        def paragraph_embeddings(paras, bounds, sent_embs):
-            embs = []
-            for i in range(len(paras)):
-                start, end = bounds[i], bounds[i+1]
-                if start == end:
-                    embs.append(np.zeros(sent_embs.shape[1]))
-                else:
-                    embs.append(np.mean(sent_embs[start:end], axis=0))
-            return np.array(embs)
+        HIGH_THRESHOLD = 0.6
+        AVG_THRESHOLD = 0.4
 
-        src_para_embs = paragraph_embeddings(src_paras, src_bounds, src_sent_embs)
-        tgt_para_embs = paragraph_embeddings(tgt_paras, tgt_bounds, tgt_sent_embs)
-        src_para_embs = src_para_embs / (np.linalg.norm(src_para_embs, axis=1, keepdims=True) + 1e-9)
-        tgt_para_embs = tgt_para_embs / (np.linalg.norm(tgt_para_embs, axis=1, keepdims=True) + 1e-9)
+        filtered_pairs = []
+        for s_list, t_list in raw_pairs:
+            if not s_list or not t_list:
+                continue
+            max_sim = -1.0
+            for si in s_list:
+                for ti in t_list:
+                    sim = np.dot(src_embs[si], tgt_embs[ti])
+                    if sim > max_sim:
+                        max_sim = sim
+            if max_sim >= HIGH_THRESHOLD:
+                filtered_pairs.append((sorted(s_list), sorted(t_list)))
+                continue
+            src_group_emb = np.mean(src_embs[s_list], axis=0)
+            tgt_group_emb = np.mean(tgt_embs[t_list], axis=0)
+            avg_sim = np.dot(src_group_emb, tgt_group_emb)
+            if avg_sim >= AVG_THRESHOLD:
+                filtered_pairs.append((sorted(s_list), sorted(t_list)))
 
-        S, T = len(src_paras), len(tgt_paras)
-        sim = np.dot(src_para_embs, tgt_para_embs.T)
+        matched_src = set()
+        matched_tgt = set()
+        for s_list, t_list in filtered_pairs:
+            matched_src.update(s_list)
+            matched_tgt.update(t_list)
 
-        PARA_THRESHOLD = 0.5
+        segments = []
+        i, j = 0, 0
+        S, T = len(src_flat), len(tgt_flat)
 
-        dp = np.full((S+1, T+1), -1e9)
-        dp[0, 0] = 0.0
-        class Dir(IntEnum):
-            DIAG = 0; UP = 1; LEFT = 2
-        back = np.zeros((S+1, T+1), dtype=int)
-        for i in range(S+1):
-            for j in range(T+1):
-                if i == 0 and j == 0: continue
-                best, best_ptr = -1e9, None
-                if i > 0 and j > 0 and sim[i-1, j-1] >= PARA_THRESHOLD:
-                    score = dp[i-1, j-1] + sim[i-1, j-1]
-                    if score > best:
-                        best, best_ptr = score, Dir.DIAG
-                if i > 0:
-                    score = dp[i-1, j]
-                    if score > best:
-                        best, best_ptr = score, Dir.UP
-                if j > 0:
-                    score = dp[i, j-1]
-                    if score > best:
-                        best, best_ptr = score, Dir.LEFT
-                dp[i, j] = best
-                back[i, j] = best_ptr
+        # Buffers for consecutive unmatched sentences
+        unmatched_src_buf = []   # list of (text, html, occ)
+        unmatched_tgt_buf = []
 
-        para_pairs = []
-        i, j = S, T
-        while i > 0 or j > 0:
-            if back[i, j] == Dir.DIAG:
-                i -= 1; j -= 1
-                para_pairs.append((i, j))
-            elif back[i, j] == Dir.UP:
-                i -= 1
-                para_pairs.append((i, None))
-            else:
-                j -= 1
-                para_pairs.append((None, j))
-        para_pairs.reverse()
+        def flush_unmatched():
+            nonlocal unmatched_src_buf, unmatched_tgt_buf
+            if not unmatched_src_buf and not unmatched_tgt_buf:
+                return
+            src_text = '\n'.join(s[0] for s in unmatched_src_buf) if unmatched_src_buf else ''
+            tgt_text = '\n'.join(t[0] for t in unmatched_tgt_buf) if unmatched_tgt_buf else ''
+            src_html = '\n'.join(s[1] for s in unmatched_src_buf) if unmatched_src_buf else ''
+            tgt_html = '\n'.join(t[1] for t in unmatched_tgt_buf) if unmatched_tgt_buf else ''
+            src_occ = [o for s in unmatched_src_buf for o in s[2]]
+            tgt_occ = [o for t in unmatched_tgt_buf for o in t[2]]
+            segments.append({
+                'source': src_text,
+                'target': tgt_text,
+                'source_html': src_html,
+                'target_html': tgt_html,
+                'source_footnote_occurrences': src_occ,
+                'target_footnote_occurrences': tgt_occ
+            })
+            unmatched_src_buf.clear()
+            unmatched_tgt_buf.clear()
 
-        aligned_paras = []
+        def find_pair_with_src(idx):
+            for s_list, t_list in filtered_pairs:
+                if s_list and s_list[0] == idx:
+                    return (s_list, t_list)
+            return None
 
-        for src_p, tgt_p in para_pairs:
-            if src_p is not None and tgt_p is not None:
-                s_start, s_end = src_bounds[src_p], src_bounds[src_p+1]
-                t_start, t_end = tgt_bounds[tgt_p], tgt_bounds[tgt_p+1]
-                if s_start == s_end and t_start == t_end:
-                    continue
-                try:
-                    bert = Bertalign(
-                        model_encoder=self.align_model_encoder,
-                        source_sentences=src_clean[s_start:s_end],
-                        target_sentences=tgt_clean[t_start:t_end],
-                    )
-                    bert.align_sents()
-                    result = bert.result
-                except Exception as e:
-                    self.log.warning(f"Bertalign failed on paragraph pair: {e}")
-                    result = []
-                if not result:
-                    s_indices = list(range(s_start, s_end))
-                    t_indices = list(range(t_start, t_end))
-                    result = [(s_indices, t_indices)]
+        def find_pair_with_tgt(idx):
+            for s_list, t_list in filtered_pairs:
+                if t_list and t_list[0] == idx:
+                    return (s_list, t_list)
+            return None
 
-                para_segments = []
-                for s_idx_list, t_idx_list in result:
-                    s_global = [i + s_start for i in s_idx_list] if s_idx_list else []
-                    t_global = [i + t_start for i in t_idx_list] if t_idx_list else []
+        while i < S or j < T:
+            # Buffer unmatched sentences until we hit a matched one
+            if i < S and i not in matched_src:
+                unmatched_src_buf.append((src_flat[i], src_htmls[i], src_occs[i]))
+                i += 1
+                continue
+            if j < T and j not in matched_tgt:
+                unmatched_tgt_buf.append((tgt_flat[j], tgt_htmls[j], tgt_occs[j]))
+                j += 1
+                continue
 
-                    seg_src = '\n'.join(src_flat[i] for i in s_global) if s_global else ''
-                    seg_tgt = '\n'.join(tgt_flat[i] for i in t_global) if t_global else ''
-                    seg_src_html = '\n'.join(src_htmls[i] for i in s_global) if s_global else ''
-                    seg_tgt_html = '\n'.join(tgt_htmls[i] for i in t_global) if t_global else ''
-                    seg_src_occ = []
-                    for i in s_global: seg_src_occ.extend(src_occs[i])
-                    seg_tgt_occ = []
-                    for i in t_global: seg_tgt_occ.extend(tgt_occs[i])
-                    para_segments.append({
-                        'source': seg_src,
-                        'target': seg_tgt,
-                        'source_html': seg_src_html,
-                        'target_html': seg_tgt_html,
-                        'source_footnote_occurrences': seg_src_occ,
-                        'target_footnote_occurrences': seg_tgt_occ
-                    })
-                aligned_paras.append(para_segments)
+            # Both are matched now – flush buffered unmatched, then output the matched pair
+            flush_unmatched()
 
-            elif src_p is not None:
-                para_segments = []
-                for i in range(src_bounds[src_p], src_bounds[src_p+1]):
-                    para_segments.append({
-                        'source': src_flat[i],
-                        'target': '',
-                        'source_html': src_htmls[i],
-                        'target_html': '',
-                        'source_footnote_occurrences': src_occs[i],
-                        'target_footnote_occurrences': []
-                    })
-                aligned_paras.append(para_segments)
+            pair = find_pair_with_src(i) or find_pair_with_tgt(j)
+            if pair is None:
+                # fallback: treat as unmatched
+                if i < S:
+                    unmatched_src_buf.append((src_flat[i], src_htmls[i], src_occs[i]))
+                    i += 1
+                if j < T:
+                    unmatched_tgt_buf.append((tgt_flat[j], tgt_htmls[j], tgt_occs[j]))
+                    j += 1
+                continue
 
-            else:
-                para_segments = []
-                for i in range(tgt_bounds[tgt_p], tgt_bounds[tgt_p+1]):
-                    para_segments.append({
-                        'source': '',
-                        'target': tgt_flat[i],
-                        'source_html': '',
-                        'target_html': tgt_htmls[i],
-                        'source_footnote_occurrences': [],
-                        'target_footnote_occurrences': tgt_occs[i]
-                    })
-                aligned_paras.append(para_segments)
+            s_list, t_list = pair
+            seg_src = '\n'.join(src_flat[idx] for idx in s_list)
+            seg_tgt = '\n'.join(tgt_flat[idx] for idx in t_list)
+            seg_src_html = '\n'.join(src_htmls[idx] for idx in s_list)
+            seg_tgt_html = '\n'.join(tgt_htmls[idx] for idx in t_list)
+            seg_src_occ = [o for idx in s_list for o in src_occs[idx]]
+            seg_tgt_occ = [o for idx in t_list for o in tgt_occs[idx]]
+            segments.append({
+                'source': seg_src,
+                'target': seg_tgt,
+                'source_html': seg_src_html,
+                'target_html': seg_tgt_html,
+                'source_footnote_occurrences': seg_src_occ,
+                'target_footnote_occurrences': seg_tgt_occ
+            })
+            i = s_list[-1] + 1
+            j = t_list[-1] + 1
 
-        return aligned_paras
+        # Flush any remaining unmatched sentences
+        flush_unmatched()
+
+        return [[seg] for seg in segments]
 
     def run(self) -> List[Dict[str, Any]]:
         output = []
