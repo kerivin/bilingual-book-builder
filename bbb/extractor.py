@@ -305,12 +305,51 @@ class Extractor:
         anchor_paragraphs = defaultdict(list)
         current_anchor = root_id
 
+        def _split_block_at_br(block_elem):
+            """
+            Tokenize a block element and split its token list at each <br/>.
+            Each segment is wrapped with the block's opening/closing tags.
+            Returns a list of token lists (paragraphs).
+            """
+            tokens = tokenize(block_elem)
+            if not tokens:
+                return []
+
+            # The first token is the open tag, the last is the close tag.
+            open_tokens = []
+            close_tokens = []
+            if tokens[0].kind == 'open':
+                open_tokens.append(tokens[0])
+                close_tokens.append(tokens[-1])
+                inner = tokens[1:-1]
+            else:
+                # Not a typical block; just treat as one paragraph.
+                return [tokens]
+
+            # Split inner token list at <br/> (void tokens with 'br' tag)
+            segments = []
+            current_segment = []
+            for tok in inner:
+                if tok.kind == 'void' and '<br' in tok.content:
+                    # flush current segment
+                    if current_segment:
+                        segments.append(open_tokens + current_segment + close_tokens)
+                        current_segment = []
+                    # The <br/> itself can be included as a separate paragraph?
+                    # Usually we don't want an empty paragraph for a lone <br/>.
+                    # We'll just skip it (like original behavior).
+                else:
+                    current_segment.append(tok)
+            if current_segment:
+                segments.append(open_tokens + current_segment + close_tokens)
+            return segments if segments else [tokens]   # if no <br/>, return original
+
         def process_block(block_elem):
             if current_anchor is None:
                 return
-            tokens = tokenize(block_elem)
-            if tokens:
-                anchor_paragraphs[current_anchor].append(tokens)
+            for tokens in _split_block_at_br(block_elem):
+                if tokens:
+                    anchor_paragraphs[current_anchor].append(tokens)
 
         def walk_children(node):
             nonlocal current_anchor
@@ -331,7 +370,6 @@ class Extractor:
                 return
 
             if node.name in BLOCK_TAGS:
-                # Do NOT skip numeric/Roman blocks – they may be chapter titles.
                 process_block(node)
             else:
                 for child in node.children:
@@ -349,12 +387,6 @@ class Extractor:
             full_text = _normalize_text(full_text)
             result[aid] = {'text': full_text, 'paragraph_tokens': para_list}
         return result
-
-    @staticmethod
-    def _is_numeric_roman_block(elem) -> bool:
-        content = elem.get_text(separator=' ', strip=True)
-        stripped = content.strip().strip('()[]{}"\'-–—')
-        return bool(stripped) and bool(re.fullmatch(r'[0-9IVXLCDMivxlcdm]+', stripped))
 
     def _extract_from_toc(self) -> List[Dict[str, Any]]:
         toc = self.doc.toc
@@ -558,10 +590,6 @@ class Extractor:
                 current_anchor = root_id
                 if node.name in HEADINGISH_TAGS:
                     return
-            if node.name in HEADING_TAGS:
-                return
-            if node.name in BLOCK_TAGS and self._is_numeric_roman_block(node):
-                return
             if node.name in BLOCK_TAGS and current_anchor is not None:
                 anchor_texts[current_anchor].append('\n\n')
             for child in node.children:
