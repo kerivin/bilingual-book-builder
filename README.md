@@ -2,6 +2,7 @@
 
 <img width="300" alt="Screenshot" src="https://github.com/user-attachments/assets/4431d770-a0c6-4af6-ba49-cf1a7e1a0565" />
 
+
 Builds a parallel text ePub with sentences aligned side-by-side from two ePubs of the same book in different languages.
 
 #### Usage:
