@@ -69,6 +69,8 @@ class Aligner:
         if tgt_lang is None:
             tgt_lang = Language.ENGLISH
 
+        NEWLINE_PLACEHOLDER = '\uE001'
+
         def process_side(text, prefix, fn_refs, lang, token_list):
             token_pattern = re.compile(rf'\s*{re.escape(prefix)}FNREF_(\d+)\s*')
 
@@ -86,18 +88,20 @@ class Aligner:
                     if not orig_text.strip():
                         continue
 
-                    # Split the original text – the splitter will handle newlines correctly
+                    safe_text = orig_text.replace('\n', NEWLINE_PLACEHOLDER)
+
                     try:
-                        para_split = self.splitter.run(orig_text, lang)
+                        para_split = self.splitter.run(safe_text, lang)
                     except Exception as e:
                         self.log.warning(f"Sentence splitting failed: {e}")
                         para_split = []
 
                     if para_split:
-                        # Flatten all sentences from all sub-paragraphs
                         sentences = [s for sublist in para_split for s in sublist]
                     else:
-                        sentences = [orig_text]
+                        sentences = [safe_text]
+
+                    sentences = [s.replace(NEWLINE_PLACEHOLDER, '\n') for s in sentences]
 
                     pos = 0
                     para_flat = []
@@ -143,7 +147,6 @@ class Aligner:
                     idx += count
                 return paragraphs, all_flat, all_clean, all_occurrences, all_htmls
 
-            # Fallback: no token list
             paragraphs = self.splitter.run(text, lang)
             if not paragraphs:
                 return [], [], [], [], []

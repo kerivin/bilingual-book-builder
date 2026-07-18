@@ -250,7 +250,7 @@ class BookBuilder:
                 )
         return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
 
-    def _build_single_side_chapter(self, side_info, footnotes_map, prev_path, css_class, body_class=''):
+    def _build_single_side_chapter(self, side_info, footnotes_map, css_class, body_class=''):
         toc_path = side_info.get('toc_path', [])
         raw_text = side_info.get('text', '')
         body = self._paragraphs_html(raw_text)
@@ -270,9 +270,7 @@ class BookBuilder:
 
     def _build_chapter(self, source_info: Optional[Dict[str, Any]],
                        target_info: Optional[Dict[str, Any]],
-                       alignment: List[List[Dict[str, str]]],
-                       prev_source_path: List[str],
-                       prev_target_path: List[str]) -> Dict[str, Any]:
+                       alignment: List[List[Dict[str, str]]]) -> Dict[str, Any]:
 
         if source_info and target_info:
             all_fn_items = []
@@ -321,12 +319,12 @@ class BookBuilder:
         elif source_info:
             body_class = source_info.get('body_class', '')
             return self._build_single_side_chapter(
-                source_info, self.source_footnotes, prev_source_path, 'bilingual-source-only', body_class
+                source_info, self.source_footnotes, 'bilingual-source-only', body_class
             )
         elif target_info:
             body_class = target_info.get('body_class', '')
             return self._build_single_side_chapter(
-                target_info, self.target_footnotes, prev_target_path, 'bilingual-target-only', body_class
+                target_info, self.target_footnotes, 'bilingual-target-only', body_class
             )
         else:
             return {'body_html': '', 'flat_title': '', 'toc_path': []}
@@ -396,9 +394,6 @@ class BookBuilder:
         new_spine_ids = []
         toc_entries = []
 
-        last_source_path: List[str] = []
-        last_target_path: List[str] = []
-
         with progress.phase('building', len(self.blocks), "Building chapters"):
             for block_idx, block in enumerate(self.blocks):
                 source_info = block.get('source')
@@ -408,16 +403,7 @@ class BookBuilder:
 
                 alignment = block.get('alignment') or []
 
-                ch = self._build_chapter(
-                    source_info, target_info, alignment,
-                    prev_source_path=last_source_path,
-                    prev_target_path=last_target_path,
-                )
-
-                if source_info:
-                    last_source_path = source_info.get('toc_path', [])
-                if target_info:
-                    last_target_path = target_info.get('toc_path', [])
+                ch = self._build_chapter(source_info, target_info, alignment)
 
                 file_name = f"{base_dir}chap_{block_idx:03d}.xhtml"
                 uid = f"chap_{block_idx:03d}"
