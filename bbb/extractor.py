@@ -459,6 +459,13 @@ class Extractor:
             if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
 
+            anchors_in_this_file = set()
+            for entry in file_entries:
+                if entry["anchor"] is not None:
+                    anchors_in_this_file.add(entry["anchor"])
+            self.footnotes = {k: v for k, v in self.footnotes.items()
+                            if k not in anchors_in_this_file}
+
             parent_entry = None
             child_entries = []
             for entry in file_entries:
