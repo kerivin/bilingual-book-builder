@@ -64,10 +64,6 @@ class Aligner:
                     src_lang = detected[0]
                 if tgt_lang is None and len(detected) > 1:
                     tgt_lang = detected[1]
-        if src_lang is None:
-            src_lang = Language.ENGLISH
-        if tgt_lang is None:
-            tgt_lang = Language.ENGLISH
 
         NEWLINE_PLACEHOLDER = '\uE001'
 
