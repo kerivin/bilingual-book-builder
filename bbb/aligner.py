@@ -41,7 +41,8 @@ class Aligner:
                     src_footnote_refs=None, tgt_footnote_refs=None,
                     src_tokens=None, tgt_tokens=None) -> List[Dict[str, Any]]:
         if not source_text.strip() or not target_text.strip():
-            return []
+            return [[{'source': source_text, 'target': target_text,
+                      'source_html': source_text, 'target_html': target_text}]]
 
         src_lang = self.source_language
         tgt_lang = self.target_language
@@ -56,21 +57,17 @@ class Aligner:
             try:
                 detected = self.language_detector.detect_languages_in_parallel_of(texts_to_detect)
             except Exception as e:
-                e.add_note("^ LanguageDetector")
+                self.log.warning(f"Language detection failed: {e}")
                 detected = []
             if detected:
                 if src_lang is None:
                     src_lang = detected[0]
                 if tgt_lang is None and len(detected) > 1:
                     tgt_lang = detected[1]
-            if src_lang is None:
-                src_lang = Language.ENGLISH
-                self.log.warning("Could not detect source language, defaulting to English.")
-            if tgt_lang is None:
-                tgt_lang = Language.ENGLISH
-                self.log.warning("Could not detect target language, defaulting to English.")
-
-        PARA_BREAK_PLACEHOLDER = '\uE001'
+        if src_lang is None:
+            src_lang = Language.ENGLISH
+        if tgt_lang is None:
+            tgt_lang = Language.ENGLISH
 
         def process_side(text, prefix, fn_refs, lang, token_list):
             token_pattern = re.compile(rf'\s*{re.escape(prefix)}FNREF_(\d+)\s*')
@@ -89,19 +86,18 @@ class Aligner:
                     if not orig_text.strip():
                         continue
 
-                    # Replace ALL newlines with placeholder so the splitter never breaks the paragraph
-                    safe_text = orig_text.replace('\n', PARA_BREAK_PLACEHOLDER)
+                    # Split the original text – the splitter will handle newlines correctly
                     try:
-                        para_split = self.splitter.run(safe_text, lang)
-                        if para_split:
-                            sentences = para_split[0]
-                        else:
-                            sentences = [safe_text]
-                    except Exception:
-                        sentences = [safe_text]
+                        para_split = self.splitter.run(orig_text, lang)
+                    except Exception as e:
+                        self.log.warning(f"Sentence splitting failed: {e}")
+                        para_split = []
 
-                    # Restore newlines in each sentence
-                    sentences = [s.replace(PARA_BREAK_PLACEHOLDER, '\n') for s in sentences]
+                    if para_split:
+                        # Flatten all sentences from all sub-paragraphs
+                        sentences = [s for sublist in para_split for s in sublist]
+                    else:
+                        sentences = [orig_text]
 
                     pos = 0
                     para_flat = []
@@ -145,7 +141,6 @@ class Aligner:
                 for count in all_para_sent_counts:
                     paragraphs.append(all_flat[idx:idx+count])
                     idx += count
-
                 return paragraphs, all_flat, all_clean, all_occurrences, all_htmls
 
             # Fallback: no token list
@@ -187,8 +182,9 @@ class Aligner:
             )
             aligner.align_sents()
         except Exception as e:
-            e.add_note("^ Bertalign")
-            raise
+            self.log.warning(f"Bertalign failed: {e}, using fallback alignment.")
+            return [[{'source': source_text, 'target': target_text,
+                      'source_html': source_text, 'target_html': target_text}]]
 
         matched_src = set()
         matched_tgt = set()
@@ -303,7 +299,6 @@ class Aligner:
             if source_index is not None:
                 ch = self.source_chapters[source_index]
                 block['source'] = {
-                    'display_path': ch['display_path'],
                     'toc_path': ch['toc_path'],
                     'text': ch['full_text'] if target_index is None else None,
                     'index': ch['index'],
@@ -315,7 +310,6 @@ class Aligner:
             if target_index is not None:
                 ch = self.target_chapters[target_index]
                 block['target'] = {
-                    'display_path': ch['display_path'],
                     'toc_path': ch['toc_path'],
                     'text': ch['full_text'] if source_index is None else None,
                     'index': ch['index'],
@@ -329,12 +323,14 @@ class Aligner:
         tasks = []
         for idx, (src_idx, tgt_idx) in enumerate(self.chapter_pairs):
             if src_idx is not None and tgt_idx is not None:
-                src_text = self.source_chapters[src_idx]['full_text']
-                tgt_text = self.target_chapters[tgt_idx]['full_text']
-                src_refs = self.source_chapters[src_idx].get('footnote_refs', [])
-                tgt_refs = self.target_chapters[tgt_idx].get('footnote_refs', [])
-                src_tokens = self.source_chapters[src_idx].get('paragraph_tokens', None)
-                tgt_tokens = self.target_chapters[tgt_idx].get('paragraph_tokens', None)
+                src_ch = self.source_chapters[src_idx]
+                tgt_ch = self.target_chapters[tgt_idx]
+                src_text = src_ch['full_text']
+                tgt_text = tgt_ch['full_text']
+                src_refs = src_ch.get('footnote_refs', [])
+                tgt_refs = tgt_ch.get('footnote_refs', [])
+                src_tokens = src_ch.get('paragraph_tokens', None)
+                tgt_tokens = tgt_ch.get('paragraph_tokens', None)
                 tasks.append((idx, src_text, tgt_text, src_refs, tgt_refs, src_tokens, tgt_tokens))
 
         with progress.phase('aligning', len(tasks), "Aligning chapters"):

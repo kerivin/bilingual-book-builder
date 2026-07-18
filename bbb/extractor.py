@@ -70,13 +70,12 @@ class Extractor:
                 self.log.info(f"{toc_label}\n{ch['preview']}")
                 utils.print_horizontal_line(self.log.info)
 
-    def _create_chapter(self, display_path: List[str], toc_path: List[str],
+    def _create_chapter(self, toc_path: List[str],
                         full_text: str, item_id: Optional[str] = None,
                         footnote_refs: Optional[List] = None,
                         paragraph_tokens: Optional[List] = None,
                         body_class: str = '') -> Dict[str, Any]:
         ch = {
-            "display_path": display_path,
             "toc_path": toc_path,
             "full_text": full_text,
             "word_count": len(full_text.split()),
@@ -460,10 +459,7 @@ class Extractor:
                 if len(text) < self.min_chars:
                     continue
                 toc_path = list(entry["toc_path"])
-                display_path = [path_display_titles.get(tuple(toc_path[:i+1]), toc_path[i])
-                                for i in range(len(toc_path))]
                 chapters.append(self._create_chapter(
-                    display_path=display_path,
                     toc_path=toc_path,
                     full_text=text,
                     item_id=self._spine_idrefs[spine_idx],
@@ -524,7 +520,6 @@ class Extractor:
             if len(body) < self.min_chars:
                 continue
             chapters.append(self._create_chapter(
-                display_path=[title],
                 toc_path=[title],
                 full_text=body
             ))

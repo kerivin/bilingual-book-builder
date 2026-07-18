@@ -235,10 +235,8 @@ class BookBuilder:
         )
         return '<hr class="footnote-separator"/><div class="footnotes"><ol>' + items + '</ol></div>'
 
-    def _build_two_column_html(self, aligned_paras, header_row: str = "") -> str:
+    def _build_two_column_html(self, aligned_paras) -> str:
         rows = []
-        if header_row:
-            rows.append(header_row)
         for para in aligned_paras:
             for i, seg in enumerate(para):
                 row_class = 'class="first-sentence"' if i == 0 else ''
@@ -253,7 +251,6 @@ class BookBuilder:
         return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
 
     def _build_single_side_chapter(self, side_info, footnotes_map, prev_path, css_class, body_class=''):
-        display_path = side_info.get('display_path', [])
         toc_path = side_info.get('toc_path', [])
         raw_text = side_info.get('text', '')
         body = self._paragraphs_html(raw_text)
@@ -268,7 +265,7 @@ class BookBuilder:
         body_html = f'<div class="{css_class}">\n{body}\n</div>'
         if fn_items:
             body_html += self._build_footnote_list(fn_items)
-        flat_title = display_path[-1] if display_path else ''
+        flat_title = toc_path[-1] if toc_path else ''
         return {'body_html': body_html, 'flat_title': flat_title, 'toc_path': toc_path}
 
     def _build_chapter(self, source_info: Optional[Dict[str, Any]],
@@ -309,14 +306,15 @@ class BookBuilder:
             if all_fn_items:
                 body_html += self._build_footnote_list(all_fn_items)
 
-            # Wrap with original body class if available
+            # Preserve original body class for CSS
             body_class = source_info.get('body_class', '') or target_info.get('body_class', '')
             if body_class:
                 body_html = f'<div class="{body_class}">\n{body_html}\n</div>'
 
-            src_display = source_info.get('display_path', [])
-            tgt_display = target_info.get('display_path', [])
-            flat_title = (src_display[-1] + ' / ' + tgt_display[-1]) if (src_display and tgt_display) else ''
+            # Page title (invisible) – used for the EPUB's <title> tag
+            src_toc_path = source_info.get('toc_path', [])
+            tgt_toc_path = target_info.get('toc_path', [])
+            flat_title = (src_toc_path[-1] + ' / ' + tgt_toc_path[-1]) if (src_toc_path and tgt_toc_path) else ''
             toc_path = target_info.get('toc_path', [])
             return {'body_html': body_html, 'flat_title': flat_title, 'toc_path': toc_path}
 
@@ -417,9 +415,9 @@ class BookBuilder:
                 )
 
                 if source_info:
-                    last_source_path = source_info.get('display_path', [])
+                    last_source_path = source_info.get('toc_path', [])
                 if target_info:
-                    last_target_path = target_info.get('display_path', [])
+                    last_target_path = target_info.get('toc_path', [])
 
                 file_name = f"{base_dir}chap_{block_idx:03d}.xhtml"
                 uid = f"chap_{block_idx:03d}"
