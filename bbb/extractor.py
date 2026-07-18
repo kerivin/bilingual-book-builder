@@ -269,9 +269,9 @@ class Extractor:
                 continue
 
             counter += 1
-            token = f' {self.fn_prefix}FNREF_{counter} '
+            token = f'{self.fn_prefix}FNREF_{counter}'
             self._current_footnote_refs.append({
-                'token': self.fn_prefix + f'FNREF_{counter}',
+                'token': token,
                 'target_id': fragment
             })
             a_tag.replace_with(token)

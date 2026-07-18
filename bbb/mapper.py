@@ -220,6 +220,9 @@ class Mapper:
                     print("Please answer y, n, or q.")
 
     def run_auto(self, model, force_show: bool, threshold: float = 0.5):
+        if (len(self.source) < len(self.target) / 2) or (len(self.source) / 2 > len(self.target)):
+            self.log.warning(f'Big difference between chapters number: {len(self.source)} and {len(self.target)}. Are you sure the files are valid?')
+
         def chapter_signature(chapter):
             title = chapter.get('toc_path', [''])[-1]
             full_text = chapter.get('full_text', '')
