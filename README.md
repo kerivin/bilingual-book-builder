@@ -113,3 +113,4 @@ The code is AI-assisted.
 - Some readers still display the table borders even thought they are transparent
 - Should I clean titles not tagged as titles leaking into the chapter body?
 - Now I only build side-dy-side horizontal alignment, maybe I should add translation-after-original vertical alignment
+- Convert other formats to EPUB
