@@ -15,7 +15,6 @@ HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 HEADINGISH_TAGS = {'hgroup', *HEADING_TAGS}
 BLOCK_TAGS = {'p', 'div', 'li', 'blockquote', *HEADING_TAGS}
 TAG_BLACKLIST = {'script', 'style', 'img', 'figure', 'svg', 'canvas'}
-BR_PLACEHOLDER = '\uE000'
 TEXT_BR_PLACEHOLDER = '__BR__'
 DEFAULT_ANCHOR_KEY = '__default__'
 
@@ -332,9 +331,18 @@ class Extractor:
             if is_anchor:
                 flush_paragraph()
                 current_anchor = node.get('id')
-                # walk children AND then continue with siblings – do not return
-                for child in node.children:
-                    walk(child)
+                if node.name in BLOCK_TAGS:
+                    open_tag = node.name
+                    attrs = node.attrs if hasattr(node, 'attrs') else {}
+                    attr_str = ''.join(f' {k}="{v}"' for k, v in attrs.items())
+                    current_tokens.append(Token('open', f'<{open_tag}{attr_str}>'))
+                    for child in node.children:
+                        walk(child)
+                    current_tokens.append(Token('close', f'</{open_tag}>'))
+                    flush_paragraph()
+                else:
+                    for child in node.children:
+                        walk(child)
                 return
 
             if node.name in BLOCK_TAGS:
