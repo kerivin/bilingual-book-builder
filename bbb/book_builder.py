@@ -1,6 +1,7 @@
 import os
 import uuid
 import html
+import re
 from typing import List, Dict, Any, Optional
 from ebooklib import epub
 import ebooklib
@@ -66,16 +67,23 @@ class BookBuilder:
 
     def _copy_styles(self, new_book: epub.EpubBook) -> List[str]:
         css_links = []
-        for item in self.target_book.get_items():
-            if item.get_type() == ebooklib.ITEM_STYLE:
-                css = epub.EpubItem(
-                    uid=item.get_id(),
-                    file_name=item.file_name,
-                    media_type='text/css',
-                    content=item.get_content()
-                )
-                new_book.add_item(css)
-                css_links.append(item.file_name)
+        seen = set()
+        for book in (self.source_book, self.target_book):
+            if book is None:
+                continue
+            for item in book.get_items():
+                if item.get_type() == ebooklib.ITEM_STYLE:
+                    name = item.file_name
+                    if name not in seen:
+                        seen.add(name)
+                        css = epub.EpubItem(
+                            uid=item.get_id() + '_copy',
+                            file_name=name,
+                            media_type='text/css',
+                            content=item.get_content()
+                        )
+                        new_book.add_item(css)
+                        css_links.append(name)
         return css_links
 
     def _copy_metadata(self, new_book: epub.EpubBook):
@@ -205,11 +213,10 @@ class BookBuilder:
         if not token_occurrences:
             return text, []
 
-        token_to_html = {}
         fn_items = []
         for occ in token_occurrences:
             token = occ['token']
-            if token in token_to_html:
+            if token not in text:
                 continue
             num = used_numbers[0] + 1
             used_numbers[0] = num
@@ -217,13 +224,18 @@ class BookBuilder:
             ref_id = f'fnref_{num}'
             fn_id = f'fn_{num}'
             link_html = f'<sup class="footnote-ref" id="{ref_id}"><a href="#{fn_id}">[{num}]</a></sup>'
-            token_to_html[token] = link_html
+            text = text.replace(token, link_html)
             body = footnote_bodies.get(target_id, '')
             fn_items.append({'id': fn_id, 'ref_id': ref_id, 'body': body})
-
-        for token, html_tag in token_to_html.items():
-            text = text.replace(token, html_tag)
         return text, fn_items
+
+    def _final_footnote_sweep(self, text: str, used_numbers):
+        prefix_pattern = r'(S_FNREF_|T_FNREF_)(\d+)'
+        def replacer(m):
+            num = used_numbers[0] + 1
+            used_numbers[0] = num
+            return f'<sup class="footnote-ref" id="fnref_{num}"><a href="#fn_{num}">[{num}]</a></sup>'
+        return re.sub(prefix_pattern, replacer, text)
 
     def _build_footnote_list(self, fn_items):
         if not fn_items:
@@ -255,8 +267,8 @@ class BookBuilder:
         raw_text = side_info.get('text', '')
         body = self._paragraphs_html(raw_text)
         fn_refs = side_info.get('footnote_refs', [])
+        used_numbers = [0]
         if fn_refs:
-            used_numbers = [0]
             body, fn_items = self._apply_footnote_links(body, fn_refs, footnotes_map, used_numbers)
         else:
             fn_items = []
@@ -279,37 +291,35 @@ class BookBuilder:
             for para in alignment:
                 new_para = []
                 for seg in para:
-                    src_text = seg['source']
-                    tgt_text = seg['target']
                     src_occ = seg.get('source_footnote_occurrences', [])
                     tgt_occ = seg.get('target_footnote_occurrences', [])
-                    src_html_raw = seg.get('source_html', src_text)
-                    tgt_html_raw = seg.get('target_html', tgt_text)
+                    src_html = seg.get('source_html', self._inline_html(seg.get('source', '')))
+                    tgt_html = seg.get('target_html', self._inline_html(seg.get('target', '')))
+
                     src_html, src_fns = self._apply_footnote_links(
-                        src_html_raw, src_occ, self.source_footnotes, used_numbers
+                        src_html, src_occ, self.source_footnotes, used_numbers
                     )
                     tgt_html, tgt_fns = self._apply_footnote_links(
-                        tgt_html_raw, tgt_occ, self.target_footnotes, used_numbers
+                        tgt_html, tgt_occ, self.target_footnotes, used_numbers
                     )
                     all_fn_items.extend(src_fns + tgt_fns)
                     new_para.append({
-                        'source': src_text,
-                        'target': tgt_text,
+                        'source': seg['source'],
+                        'target': seg['target'],
                         'source_html': src_html,
                         'target_html': tgt_html
                     })
                 processed_paras.append(new_para)
 
             body_html = self._build_two_column_html(processed_paras)
+            body_html = self._final_footnote_sweep(body_html, used_numbers)
             if all_fn_items:
                 body_html += self._build_footnote_list(all_fn_items)
 
-            # Preserve original body class for CSS
             body_class = source_info.get('body_class', '') or target_info.get('body_class', '')
             if body_class:
                 body_html = f'<div class="{body_class}">\n{body_html}\n</div>'
 
-            # Page title (invisible) – used for the EPUB's <title> tag
             src_toc_path = source_info.get('toc_path', [])
             tgt_toc_path = target_info.get('toc_path', [])
             flat_title = (src_toc_path[-1] + ' / ' + tgt_toc_path[-1]) if (src_toc_path and tgt_toc_path) else ''

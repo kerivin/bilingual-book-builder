@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup, NavigableString, Comment
 
 from bbb import progress, utils
 from bbb.epub_file import EpubFile
-from bbb.html_tokenizer import tokenize, Token
+from bbb.html_tokenizer import Token
 
 HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 HEADINGISH_TAGS = {'hgroup', *HEADING_TAGS}
@@ -295,97 +295,81 @@ class Extractor:
                 return self._get_heading_text(found)
         return ""
 
-    def _extract_paragraphs_and_tokens(self, soup: BeautifulSoup,
-                                       anchor_elements: Dict[str, Any],
-                                       root_id: Optional[str] = None):
+    def _extract_text_and_tokens(self, soup: BeautifulSoup,
+                                 anchor_elements: Dict[str, Any],
+                                 root_id: Optional[str] = None):
+        for br in soup.find_all('br'):
+            br.replace_with(TEXT_BR_PLACEHOLDER)
         body = soup.body if soup.body else soup
         if root_id is not None and root_id not in anchor_elements:
             root_id = None
 
-        anchor_paragraphs = defaultdict(list)
+        anchor_texts = defaultdict(list)
+        anchor_token_lists = defaultdict(list)
         current_anchor = root_id
+        current_tokens = []
+        PARA_SEP = '\n\n'
 
-        def _split_block_at_br(block_elem):
-            """
-            Tokenize a block element and split its token list at each <br/>.
-            Each segment is wrapped with the block's opening/closing tags.
-            Returns a list of token lists (paragraphs).
-            """
-            tokens = tokenize(block_elem)
-            if not tokens:
-                return []
+        def flush_paragraph():
+            nonlocal current_tokens
+            if current_anchor is not None and current_tokens:
+                anchor_texts[current_anchor].append(PARA_SEP)
+                anchor_token_lists[current_anchor].append(current_tokens)
+                current_tokens = []
 
-            # The first token is the open tag, the last is the close tag.
-            open_tokens = []
-            close_tokens = []
-            if tokens[0].kind == 'open':
-                open_tokens.append(tokens[0])
-                close_tokens.append(tokens[-1])
-                inner = tokens[1:-1]
-            else:
-                # Not a typical block; just treat as one paragraph.
-                return [tokens]
-
-            # Split inner token list at <br/> (void tokens with 'br' tag)
-            segments = []
-            current_segment = []
-            for tok in inner:
-                if tok.kind == 'void' and '<br' in tok.content:
-                    # flush current segment
-                    if current_segment:
-                        segments.append(open_tokens + current_segment + close_tokens)
-                        current_segment = []
-                    # The <br/> itself can be included as a separate paragraph?
-                    # Usually we don't want an empty paragraph for a lone <br/>.
-                    # We'll just skip it (like original behavior).
-                else:
-                    current_segment.append(tok)
-            if current_segment:
-                segments.append(open_tokens + current_segment + close_tokens)
-            return segments if segments else [tokens]   # if no <br/>, return original
-
-        def process_block(block_elem):
-            if current_anchor is None:
-                return
-            for tokens in _split_block_at_br(block_elem):
-                if tokens:
-                    anchor_paragraphs[current_anchor].append(tokens)
-
-        def walk_children(node):
-            nonlocal current_anchor
+        def walk(node):
+            nonlocal current_anchor, current_tokens
             if isinstance(node, NavigableString):
                 text = str(node)
-                if text.strip() and current_anchor is not None:
-                    anchor_paragraphs[current_anchor].append([Token('text', text, len(text))])
+                if current_anchor is not None:
+                    anchor_texts[current_anchor].append(text)
+                    current_tokens.append(Token('text', text, len(text)))
                 return
             if not hasattr(node, 'name'):
                 return
 
-            if hasattr(node, 'get') and node.get('id') in anchor_elements:
-                old = current_anchor
+            is_anchor = node.get('id') in anchor_elements if hasattr(node, 'get') else False
+            if is_anchor:
+                flush_paragraph()
                 current_anchor = node.get('id')
+                # walk children AND then continue with siblings – do not return
                 for child in node.children:
-                    walk_children(child)
-                current_anchor = old
+                    walk(child)
                 return
 
             if node.name in BLOCK_TAGS:
-                process_block(node)
-            else:
+                flush_paragraph()
+                open_tag = node.name
+                attrs = node.attrs if hasattr(node, 'attrs') else {}
+                attr_str = ''.join(f' {k}="{v}"' for k, v in attrs.items())
+                current_tokens.append(Token('open', f'<{open_tag}{attr_str}>'))
                 for child in node.children:
-                    walk_children(child)
+                    walk(child)
+                current_tokens.append(Token('close', f'</{open_tag}>'))
+                flush_paragraph()
+                return
+            if node.name == 'br':
+                anchor_texts[current_anchor].append(TEXT_BR_PLACEHOLDER)
+                current_tokens.append(Token('text', TEXT_BR_PLACEHOLDER, len(TEXT_BR_PLACEHOLDER)))
+                return
 
-        walk_children(body)
+            open_tag = node.name
+            attrs = node.attrs if hasattr(node, 'attrs') else {}
+            attr_str = ''.join(f' {k}="{v}"' for k, v in attrs.items())
+            current_tokens.append(Token('open', f'<{open_tag}{attr_str}>'))
+            for child in node.children:
+                walk(child)
+            current_tokens.append(Token('close', f'</{open_tag}>'))
+
+        walk(body)
+        flush_paragraph()
 
         result = {}
-        for aid, para_list in anchor_paragraphs.items():
-            plain_paras = []
-            for tokens in para_list:
-                para_text = ''.join(t.content for t in tokens if t.kind == 'text')
-                plain_paras.append(para_text)
-            full_text = '\n\n'.join(plain_paras)
-            full_text = _normalize_text(full_text)
-            result[aid] = {'text': full_text, 'paragraph_tokens': para_list}
+        for aid in anchor_texts:
+            raw = ''.join(anchor_texts[aid])
+            raw = raw.replace(TEXT_BR_PLACEHOLDER, '\n')
+            full_text = _normalize_text(raw)
+            result[aid] = {'text': full_text, 'paragraph_tokens': anchor_token_lists[aid]}
         return result
 
     def _extract_from_toc(self) -> List[Dict[str, Any]]:
@@ -422,65 +406,61 @@ class Extractor:
         if not toc_entries:
             return []
 
-        path_display_titles = {}
-        for entry in toc_entries:
-            soup = self._load_soup(entry["full_href"])
-            if not soup:
-                continue
-            for tag in soup(TAG_BLACKLIST):
-                tag.decompose()
-            heading_text = ""
-            if entry["anchor"] is not None:
-                elem = soup.find(id=entry["anchor"])
-                heading_text = self._extract_heading_with_newlines(elem) if elem else ""
-            else:
-                root = soup.body if soup.body else soup
-                heading_text = self._extract_heading_with_newlines(root)
-            path_display_titles[entry["toc_path"]] = heading_text if heading_text else entry["label"]
-
-        grouped = defaultdict(list)
+        grouped: Dict[int, List[dict]] = {}
+        order = []
         for e in toc_entries:
-            grouped[e["spine_index"]].append(e)
-        order = sorted(grouped.keys())
+            idx = e["spine_index"]
+            if idx not in grouped:
+                grouped[idx] = []
+                order.append(idx)
+            grouped[idx].append(e)
 
         chapters = []
         ROOT_ID = DEFAULT_ANCHOR_KEY
 
-        for spine_idx in order:
-            file_entries = grouped[spine_idx]
-            full_href = self._spine_full_hrefs[spine_idx]
+        for idx in order:
+            file_entries = grouped[idx]
+            full_href = self._spine_full_hrefs[idx]
             soup = self._load_soup(full_href)
             if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
 
             body_class = ' '.join(soup.body.get('class', [])) if soup.body else ''
 
-            anchor_ids_in_file = set()
+            anchors_in_this_file = set()
             for entry in file_entries:
                 if entry["anchor"] is not None:
-                    anchor_ids_in_file.add(entry["anchor"])
+                    anchors_in_this_file.add(entry["anchor"])
 
             saved_footnotes = self.footnotes
-            self.footnotes = {k: v for k, v in self.footnotes.items() if k not in anchor_ids_in_file}
+            self.footnotes = {k: v for k, v in self.footnotes.items()
+                              if k not in anchors_in_this_file}
             self._clean_soup(soup, handle_footnotes=True)
             current_footnote_refs = self._current_footnote_refs
             self.footnotes = saved_footnotes
 
-            anchor_elements = {}
+            parent_entry = None
+            child_entries = []
             for entry in file_entries:
-                if entry["anchor"] is not None:
-                    elem = soup.find(id=entry["anchor"])
-                    if elem is not None:
-                        anchor_elements[entry["anchor"]] = elem
+                if entry["anchor"] is None:
+                    parent_entry = entry
+                else:
+                    child_entries.append(entry)
+
+            anchor_elements = {}
+            for entry in child_entries:
+                elem = soup.find(id=entry["anchor"])
+                if elem is not None:
+                    anchor_elements[entry["anchor"]] = elem
 
             root_id = None
-            if any(e["anchor"] is None for e in file_entries):
+            if parent_entry is not None:
                 root_id = ROOT_ID
                 first_heading = soup.find(HEADING_TAGS)
                 root_elem = first_heading if first_heading else (soup.body if soup.body else soup)
                 anchor_elements[ROOT_ID] = root_elem
 
-            section_data = self._extract_paragraphs_and_tokens(soup, anchor_elements, root_id=root_id)
+            section_data = self._extract_text_and_tokens(soup, anchor_elements, root_id=root_id)
 
             for entry in file_entries:
                 sec_id = entry["anchor"] if entry["anchor"] is not None else ROOT_ID
@@ -494,7 +474,7 @@ class Extractor:
                 chapters.append(self._create_chapter(
                     toc_path=toc_path,
                     full_text=text,
-                    item_id=self._spine_idrefs[spine_idx],
+                    item_id=self._spine_idrefs[idx],
                     footnote_refs=current_footnote_refs,
                     paragraph_tokens=data['paragraph_tokens'],
                     body_class=body_class
@@ -584,12 +564,6 @@ class Extractor:
             anchor_id = node.get('id') if node.get('id') in anchor_elements else None
             if anchor_id is not None:
                 current_anchor = anchor_id
-                if node.name in HEADINGISH_TAGS:
-                    return
-            elif root_id and node is anchor_elements.get(root_id):
-                current_anchor = root_id
-                if node.name in HEADINGISH_TAGS:
-                    return
             if node.name in BLOCK_TAGS and current_anchor is not None:
                 anchor_texts[current_anchor].append('\n\n')
             for child in node.children:

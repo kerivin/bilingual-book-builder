@@ -1,9 +1,8 @@
+import re
 import numpy as np
-import html
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
-import re
 
 from bbb import progress
 from bbb.splitter import Splitter
@@ -13,6 +12,7 @@ from lingua import LanguageDetectorBuilder, LanguageDetector, Language, IsoCode6
 from sentence_transformers import SentenceTransformer
 from bertalign import Bertalign
 from bertalign.encoder import Encoder
+
 
 class Aligner:
     def __init__(
@@ -56,95 +56,76 @@ class Aligner:
         src_lang = self._detect_language(source_text, self.source_language)
         tgt_lang = self._detect_language(target_text, self.target_language)
 
-        PARA_PLACEHOLDER = '\uE001'
+        def process_side(text, prefix, fn_refs, lang, token_list):
+            token_pattern = re.compile(rf'({re.escape(prefix)}FNREF_\d+)')
+            paragraphs = self.splitter.run(text, lang)
+            if not paragraphs:
+                paragraphs = [[text]]
+            all_flat = [s for p in paragraphs for s in p]
 
-        def process_side(token_list, prefix, fn_refs, lang, full_text):
-            all_flat = []
-            all_clean = []
-            all_htmls = []
-            all_occs = []
-
-            token_pattern = re.compile(rf'\s*{re.escape(prefix)}FNREF_(\d+)\s*')
             fn_lookup = {}
             for fn in (fn_refs or []):
                 fn_lookup[fn['token']] = fn['target_id']
 
-            if token_list is None:
-                try:
-                    paragraphs = self.splitter.run(full_text, lang)
-                except Exception:
-                    paragraphs = [[full_text]]
-                if not paragraphs:
-                    paragraphs = [[full_text]]
+            all_clean = []
+            all_occs = []
+            for sent in all_flat:
+                occ = []
+                clean = sent
+                for m in token_pattern.finditer(sent):
+                    token_str = m.group(1)
+                    if token_str in fn_lookup:
+                        occ.append({'token': token_str, 'target_id': fn_lookup[token_str]})
+                    clean = clean.replace(token_str, ' ')
+                all_clean.append(re.sub(r'\s+', ' ', clean).strip())
+                all_occs.append(occ)
 
-                all_flat = [s for p in paragraphs for s in p]
-                for sent in all_flat:
-                    found = token_pattern.findall(sent)
-                    occ = []
-                    clean = sent
-                    for num in found:
-                        token_str = f'{prefix}FNREF_{num}'
-                        if token_str in fn_lookup:
-                            occ.append({'token': token_str, 'target_id': fn_lookup[token_str]})
-                        clean = clean.replace(token_str, ' ')
-                    clean = re.sub(r'\s+', ' ', clean).strip()
-                    all_clean.append(clean)
-                    all_occs.append(occ)
-                    all_htmls.append(html.escape(sent))
-                return all_flat, all_clean, all_htmls, all_occs
+            all_htmls = []
+            if token_list:
+                para_texts = [''.join(t.content for t in tokens if t.kind == 'text') for tokens in token_list]
+                para_pos = [0] * len(token_list)
+                for sent_idx, sent in enumerate(all_flat):
+                    found = False
+                    for idx, (plain, tokens) in enumerate(zip(para_texts, token_list)):
+                        start = plain.find(sent, para_pos[idx])
+                        if start == -1:
+                            start = plain.find(sent.strip(), para_pos[idx])
+                        if start != -1:
+                            end = start + len(sent)
+                            para_pos[idx] = end
+                            html_str, _ = rebuild_sentence(tokens, start, end)
+                            found = True
+                            break
+                    if not found:
+                        whole_text = ' '.join(para_texts)
+                        start = whole_text.find(sent)
+                        if start != -1:
+                            end = start + len(sent)
+                            total = 0
+                            for idx, plain in enumerate(para_texts):
+                                if total + len(plain) > start:
+                                    local_start = start - total
+                                    local_end = min(end - total, len(plain))
+                                    html_str, _ = rebuild_sentence(token_list[idx], local_start, local_end)
+                                    found = True
+                                    break
+                                total += len(plain)
+                    if not found:
+                        html_str = sent
 
-            for para_tokens in token_list:
-                if not para_tokens:
-                    continue
-                orig_text = ''.join(t.content for t in para_tokens if t.kind == 'text')
-                if not orig_text.strip():
-                    continue
+                    if any(occ['token'] not in html_str for occ in all_occs[sent_idx]):
+                        html_str = sent
 
-                safe_text = orig_text.replace('\n\n', PARA_PLACEHOLDER)
-
-                try:
-                    split = self.splitter.run(safe_text, lang)
-                except Exception:
-                    split = []
-                if split:
-                    sentences = [s for sub in split for s in sub]
-                else:
-                    sentences = [safe_text]
-                sentences = [s.replace(PARA_PLACEHOLDER, '\n\n') for s in sentences]
-
-                pos = 0
-                for sent in sentences:
-                    idx = orig_text.find(sent, pos)
-                    if idx == -1:
-                        idx = orig_text.find(sent.strip(), pos)
-                    if idx == -1:
-                        idx = pos
-                    start, end = idx, idx + len(sent)
-                    pos = end
-
-                    occ = []
-                    clean = sent
-                    for m in token_pattern.finditer(sent):
-                        num = m.group(1)
-                        token_str = f'{prefix}FNREF_{num}'
-                        if token_str in fn_lookup:
-                            occ.append({'token': token_str, 'target_id': fn_lookup[token_str]})
-                        clean = clean.replace(m.group(), ' ')
-                    clean = re.sub(r'\s+', ' ', clean).strip()
-
-                    all_flat.append(sent)
-                    all_clean.append(clean)
-                    all_occs.append(occ)
-
-                    html_str, _ = rebuild_sentence(para_tokens, start, end)
                     all_htmls.append(html_str)
+            else:
+                all_htmls = [s for s in all_flat]
 
-            return all_flat, all_clean, all_htmls, all_occs
+            return all_flat, all_clean, all_occs, all_htmls
 
-        src_flat, src_clean, src_htmls, src_occs = process_side(
-            src_tokens, SRC_FN_PREFIX, src_footnote_refs, src_lang, source_text)
-        tgt_flat, tgt_clean, tgt_htmls, tgt_occs = process_side(
-            tgt_tokens, TGT_FN_PREFIX, tgt_footnote_refs, tgt_lang, target_text)
+        src_flat, src_clean, src_occs, src_htmls = process_side(
+            source_text, SRC_FN_PREFIX, src_footnote_refs, src_lang, src_tokens)
+        tgt_flat, tgt_clean, tgt_occs, tgt_htmls = process_side(
+            target_text, TGT_FN_PREFIX, tgt_footnote_refs, tgt_lang, tgt_tokens)
 
         if not src_flat or not tgt_flat:
             return [[{'source': source_text, 'target': target_text,
@@ -201,8 +182,7 @@ class Aligner:
         i, j = 0, 0
         S, T = len(src_flat), len(tgt_flat)
 
-        # Buffers for consecutive unmatched sentences
-        unmatched_src_buf = []   # list of (text, html, occ)
+        unmatched_src_buf = []
         unmatched_tgt_buf = []
 
         def flush_unmatched():
@@ -239,7 +219,6 @@ class Aligner:
             return None
 
         while i < S or j < T:
-            # Buffer unmatched sentences until we hit a matched one
             if i < S and i not in matched_src:
                 unmatched_src_buf.append((src_flat[i], src_htmls[i], src_occs[i]))
                 i += 1
@@ -249,12 +228,10 @@ class Aligner:
                 j += 1
                 continue
 
-            # Both are matched now – flush buffered unmatched, then output the matched pair
             flush_unmatched()
 
             pair = find_pair_with_src(i) or find_pair_with_tgt(j)
             if pair is None:
-                # fallback: treat as unmatched
                 if i < S:
                     unmatched_src_buf.append((src_flat[i], src_htmls[i], src_occs[i]))
                     i += 1
@@ -281,7 +258,6 @@ class Aligner:
             i = s_list[-1] + 1
             j = t_list[-1] + 1
 
-        # Flush any remaining unmatched sentences
         flush_unmatched()
 
         return [[seg] for seg in segments]
