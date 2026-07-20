@@ -62,7 +62,7 @@ class BBB:
         if not os.path.isfile(self.source_path) or not os.path.isfile(self.target_path):
             self.log.error("Not a file.")
             return
-        
+
         if os.path.samefile(self.source_path, self.target_path):
             self.log.error("Source and target files are the same.")
             return
@@ -75,7 +75,7 @@ class BBB:
         if not source_book:
             self.log.error(f"Failed to read source EPUB file {self.source_path}.")
             return
-        
+
         target_book = EpubFile(self.target_path)
         if not target_book:
             self.log.error(f"Failed to read target EPUB file {self.target_path}.")
@@ -131,7 +131,7 @@ class BBB:
         if sentence_transformer is None:
             sentence_transformer = self._create_sentence_transformer()
 
-        aligned_chapters = Aligner(
+        aligned = Aligner(
             source_chapters,
             target_chapters,
             chapter_pairs,
@@ -142,14 +142,14 @@ class BBB:
             self.split_model if not self.simple_split else None,
         ).run()
 
-        if not aligned_chapters:
+        if not aligned:
             self.log.error("No aligned chapters produced.")
             return
 
         new_book = BookBuilder(
             source_book = source_book,
             target_book = target_book,
-            blocks = aligned_chapters,
+            blocks = aligned,
             copy_target_cover = self.cover == 'target',
             source_footnotes = source_footnotes,
             target_footnotes = target_footnotes,

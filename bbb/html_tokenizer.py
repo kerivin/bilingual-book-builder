@@ -1,127 +1,172 @@
 import re
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
-@dataclass
-class Token:
-    kind: str          # 'open', 'close', 'text', 'void'
-    content: str
-    length: int = 0    # only meaningful for text
+from bs4 import BeautifulSoup, NavigableString, Tag
+
+from bbb.splitter import Splitter
+from lingua import Language
 
 
-VOID_ELEMENTS = {
-    'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
-    'link', 'meta', 'param', 'source', 'track', 'wbr'
-}
+BR_PLACEHOLDER = '__BR__'
+BR_TAG = '<br/>'
 
 
-def _is_void(tag_name: str) -> bool:
-    return tag_name.lower() in VOID_ELEMENTS
+class HtmlSentenceTokenizer:
+    def __init__(self, splitter: Splitter):
+        self.splitter = splitter
 
+    def extract(self, html: str, language: Language) -> List[Tuple[str, str]]:
+        soup = BeautifulSoup(html, 'html.parser')
+        self._remove_blacklisted(soup)
 
-def tokenize(element) -> List[Token]:
-    tokens: List[Token] = []
-    _walk(element, tokens)
-    return tokens
+        root = soup
+        if (hasattr(soup, 'contents') and len(soup.contents) == 1
+                and hasattr(soup.contents[0], 'name')
+                and soup.contents[0].name == '[document]'):
+            root = soup.contents[0]
 
+        self._replace_br_with_placeholder(root)
 
-def tokenize_children(element) -> List[Token]:
-    tokens: List[Token] = []
-    if hasattr(element, 'children'):
-        for child in element.children:
-            _walk(child, tokens)
-    return tokens
+        full_text = root.get_text()
+        norm_text, norm_to_raw = self._normalize_and_map(full_text)
 
+        if not norm_text.strip():
+            return []
 
-def _walk(node, tokens: List[Token]):
-    if isinstance(node, str):
-        text = str(node)
-        if text:
-            tokens.append(Token('text', text, length=len(text)))
-        return
-    if not hasattr(node, 'name'):
-        return
-    tag = node.name
-    if tag in ('script', 'style', 'img', 'figure', 'svg', 'canvas'):
-        return
-    attrs = node.attrs if hasattr(node, 'attrs') else {}
-    attr_parts = []
-    for k, v in attrs.items():
-        if v is None:
-            attr_parts.append(k)
-        else:
-            attr_parts.append(f'{k}="{v}"')
-    open_tag = f'<{tag}'
-    if attr_parts:
-        open_tag += ' ' + ' '.join(attr_parts)
-    if _is_void(tag):
-        open_tag += '/>'
-        tokens.append(Token('void', open_tag))
-        return
-    open_tag += '>'
-    tokens.append(Token('open', open_tag))
-    for child in node.children:
-        _walk(child, tokens)
-    tokens.append(Token('close', f'</{tag}>'))
+        paragraph_groups = self.splitter.run(norm_text, language)
+        if not paragraph_groups or not paragraph_groups[0]:
+            return [(norm_text.strip(), str(root))]
 
+        results = []
+        cursor = 0  # position in norm_text
 
-def rebuild_sentence(tokens: List[Token],
-                     start_char: int,
-                     end_char: int,
-                     open_tags: Optional[List[str]] = None) -> Tuple[str, List[str]]:
-    if open_tags is None:
-        open_tags = []
-    current_tag_stack = list(open_tags)
-    pos = 0
-    html_parts = []
-    tag_open = False
-    for tok in tokens:
-        if tok.kind == 'text':
-            tok_start = pos
-            tok_end = pos + tok.length
-            if tok_start < end_char and tok_end > start_char:
-                if not tag_open:
-                    for tag in current_tag_stack:
-                        html_parts.append(tag)
-                    tag_open = True
-                text = tok.content
-                if tok_start >= start_char and tok_end <= end_char:
-                    html_parts.append(text)
+        for para_sents in paragraph_groups:
+            if not para_sents:
+                continue
+
+            para_text = norm_text[cursor:]  # we need to find the paragraph boundaries
+            # The splitter's paragraph grouping may not exactly match our norm_text's paragraphs.
+            # We'll instead iterate over the sentences and scan sequentially.
+            # To make it robust, we just process all sentences flatly.
+            pass
+
+        # Simpler: flatten all sentences and scan sequentially through the whole norm_text.
+        all_sents = [s for para in paragraph_groups for s in para if s.strip()]
+        if not all_sents:
+            return [(norm_text.strip(), str(root))]
+
+        # Scan sequentially
+        last_pos = 0
+        for sent in all_sents:
+            # Find this sentence starting from last_pos
+            pos = norm_text.find(sent, last_pos)
+            if pos == -1:
+                # fallback: try stripped version
+                stripped = re.sub(r'\s+', ' ', sent).strip()
+                pos = norm_text.find(stripped, last_pos)
+            if pos == -1:
+                # last resort: use flexible regex that matches with any whitespace
+                pattern = re.escape(sent)
+                pattern = re.sub(r'\\ ', r'\\s+', pattern)  # replace spaces with \s+
+                match = re.search(pattern, norm_text[last_pos:])
+                if match:
+                    pos = last_pos + match.start()
                 else:
-                    if tok_start < start_char:
-                        text = text[start_char - tok_start:]
-                    if tok_end > end_char:
-                        text = text[:end_char - tok_end]
-                    html_parts.append(text)
-            pos = tok_end
-        elif tok.kind == 'open':
-            if tag_open or pos >= start_char:
-                if not tag_open:
-                    for tag in current_tag_stack:
-                        html_parts.append(tag)
-                    tag_open = True
-                html_parts.append(tok.content)
-            current_tag_stack.append(tok.content)
-        elif tok.kind == 'close':
-            if tag_open or pos >= start_char:
-                if not tag_open:
-                    for tag in current_tag_stack:
-                        html_parts.append(tag)
-                    tag_open = True
-                html_parts.append(tok.content)
-            if current_tag_stack:
-                current_tag_stack.pop()
-        elif tok.kind == 'void':
-            if tag_open or pos >= start_char:
-                if not tag_open:
-                    for tag in current_tag_stack:
-                        html_parts.append(tag)
-                    tag_open = True
-                html_parts.append(tok.content)
-        if tag_open and pos >= end_char:
-            break
-    if tag_open:
-        remaining_stack = list(current_tag_stack)
-        close_tags = [re.sub(r'^<(\w+)', r'</\1', t) for t in reversed(remaining_stack)]
-        html_parts.extend(close_tags)
-    return ''.join(html_parts), current_tag_stack
+                    continue  # skip this sentence if still not found
+            end = pos + len(sent)
+            last_pos = end
+
+            raw_start = norm_to_raw[pos] if pos < len(norm_to_raw) else 0
+            raw_end = norm_to_raw[end] if end < len(norm_to_raw) else len(full_text)
+            fragment = self._extract_fragment(root, raw_start, raw_end)
+            fragment = fragment.replace(BR_PLACEHOLDER, BR_TAG)
+            results.append((sent, fragment))
+
+        return results
+
+    def _remove_blacklisted(self, soup: BeautifulSoup) -> None:
+        for tag in soup(['script', 'style', 'img', 'figure', 'svg', 'canvas']):
+            tag.decompose()
+
+    def _replace_br_with_placeholder(self, root: Tag) -> None:
+        for br in root.find_all('br'):
+            br.replace_with(NavigableString(BR_PLACEHOLDER))
+
+    def _normalize_and_map(self, raw_text: str) -> Tuple[str, List[int]]:
+        norm_parts = []
+        norm_to_raw = []
+        i_raw = 0
+        n_raw = len(raw_text)
+
+        while i_raw < n_raw:
+            if raw_text[i_raw:i_raw + len(BR_PLACEHOLDER)] == BR_PLACEHOLDER:
+                norm_parts.append('\n')
+                norm_to_raw.append(i_raw)
+                i_raw += len(BR_PLACEHOLDER)
+                continue
+
+            if raw_text[i_raw] == '\n':
+                norm_parts.append('\n')
+                norm_to_raw.append(i_raw)
+                i_raw += 1
+                continue
+
+            if raw_text[i_raw].isspace() and raw_text[i_raw] != '\n':
+                # skip all consecutive horizontal whitespace
+                start_ws = i_raw
+                while i_raw < n_raw and raw_text[i_raw].isspace() and raw_text[i_raw] != '\n':
+                    i_raw += 1
+                # add a single space if not at start and previous char not space/newline
+                if norm_parts and norm_parts[-1] not in (' ', '\n'):
+                    norm_parts.append(' ')
+                    norm_to_raw.append(start_ws)
+                continue
+
+            norm_parts.append(raw_text[i_raw])
+            norm_to_raw.append(i_raw)
+            i_raw += 1
+
+        return ''.join(norm_parts), norm_to_raw
+
+    def _extract_fragment(self, root: Tag, start: int, end: int) -> str:
+        wrapper = BeautifulSoup('', 'html.parser').new_tag('div')
+        self._collect_fragment(root, wrapper, 0, start, end)
+        return wrapper.decode_contents()
+
+    def _collect_fragment(self, src_node, dest_parent, current_pos, start, end) -> int:
+        if isinstance(src_node, NavigableString):
+            text = str(src_node)
+            node_len = len(text)
+            node_start = current_pos
+            node_end = current_pos + node_len
+
+            if node_end <= start or node_start >= end:
+                return current_pos + node_len
+
+            if node_start >= start and node_end <= end:
+                dest_parent.append(text)
+            else:
+                if node_start < start and node_end > start:
+                    text = text[start - node_start:]
+                    node_start = start
+                if node_end > end and node_start < end:
+                    text = text[:end - node_end]
+                dest_parent.append(text)
+
+            return current_pos + node_len
+
+        if not isinstance(src_node, Tag):
+            return current_pos
+
+        for child in src_node.children:
+            if isinstance(child, NavigableString):
+                current_pos = self._collect_fragment(child, dest_parent, current_pos, start, end)
+            elif isinstance(child, Tag):
+                new_tag = BeautifulSoup('', 'html.parser').new_tag(
+                    child.name, attrs=dict(child.attrs) if child.attrs else None
+                )
+                dest_parent.append(new_tag)
+                current_pos = self._collect_fragment(child, new_tag, current_pos, start, end)
+                if not new_tag.contents:
+                    new_tag.decompose()
+        return current_pos
