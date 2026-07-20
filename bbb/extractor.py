@@ -12,6 +12,11 @@ from bbb.epub_file import EpubFile
 HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 TAG_BLACKLIST = {'script', 'style', 'img', 'figure', 'svg', 'canvas'}
 
+SKIP_TOC_LABELS = {
+    'titlepage', 'imprint', 'halftitlepage', 'halftitle', 'colophon',
+    'copyright', 'also by', 'other books', 'praise for'
+}
+
 
 def _normalize_text(raw):
     text = re.sub(r'[^\S\n]+', ' ', raw)
@@ -22,7 +27,7 @@ def _normalize_text(raw):
 
 class Extractor:
     def __init__(self, epub_file: EpubFile, force_show: bool = False,
-                 preview_words: int = 20, min_chars: int = 100, fn_prefix: str = 'S_'):
+                 preview_words: int = 20, min_chars: int = 20, fn_prefix: str = 'S_'):
         self.doc = epub_file.document
         self.force_show = force_show
         self.preview_words = preview_words
@@ -156,11 +161,7 @@ class Extractor:
         return f"{self._opf_base}{href}"
 
     def _find_guide_skip_indices(self) -> set:
-        skip_types = {
-            'cover', 'title-page', 'toc', 'copyright-page',
-            'frontmatter', 'backmatter', 'acknowledgements',
-            'other.frontmatter', 'other.backmatter'
-        }
+        skip_types = {'cover', 'title-page', 'toc', 'copyright-page'}
         skip_indices = set()
         for ref in getattr(self.doc.package, 'guide', []) or []:
             if ref.get('type', '').lower() in skip_types:
@@ -168,31 +169,6 @@ class Extractor:
                 if idx is not None:
                     skip_indices.add(idx)
         return skip_indices
-
-    def _is_skippable_frontbackmatter(self, soup: BeautifulSoup) -> bool:
-        keep_types = {
-            'dedication', 'foreword', 'preface', 'introduction', 'prologue',
-            'epigraph', 'acknowledgments', 'afterword', 'conclusion',
-            'part', 'chapter'
-        }
-        if not soup.body:
-            return False
-        for tag in soup.body.descendants:
-            if not isinstance(tag, Tag):
-                continue
-            etype = tag.get('epub:type', '')
-            if not isinstance(etype, str):
-                continue
-            if any(t in etype.split() for t in keep_types):
-                return False
-        body_etype = soup.body.get('epub:type', '')
-        if isinstance(body_etype, str) and ('frontmatter' in body_etype or 'backmatter' in body_etype):
-            return True
-        for child in soup.body.find_all(True, recursive=False):
-            etype = child.get('epub:type', '')
-            if isinstance(etype, str) and ('frontmatter' in etype or 'backmatter' in etype):
-                return True
-        return False
 
     def _resolve_toc_target_to_spine_index(self, target: str) -> Optional[int]:
         base = target.split('#')[0]
@@ -258,31 +234,44 @@ class Extractor:
                 a_tag.replace_with(token)
         return placeholders
 
-    def _collect_elements_until_next_heading(self, start_elem, soup):
-        collected = []
-        current = start_elem
+    def _extract_content_and_heading(self, soup, start_elem):
+        if start_elem is None:
+            body = soup.body if soup.body else soup
+            content_html = str(body) if body else ''
+            heading_html = ''
+            if body:
+                first_heading = body.find(HEADING_TAGS)
+                if first_heading:
+                    heading_html = str(first_heading)
+            return heading_html, content_html
+
+        collected = [str(start_elem)]
+        current = start_elem.find_next_sibling()
         while current is not None:
-            if current.name in HEADING_TAGS and current is not start_elem:
+            if current.name in HEADING_TAGS:
                 break
             collected.append(str(current))
             current = current.find_next_sibling()
-        return ''.join(collected)
+        content_html = ''.join(collected)
+        heading_html = ''
+        if start_elem.name in HEADING_TAGS:
+            heading_html = str(start_elem)
+        else:
+            first_heading = start_elem.find(HEADING_TAGS)
+            if first_heading:
+                heading_html = str(first_heading)
+        return heading_html, content_html
 
     def _extract_chapter_from_toc_entry(self, soup, entry, body_class, placeholders):
         anchor = entry['anchor']
         item_id = self._spine_idrefs[entry['spine_index']]
 
         if anchor:
-            elem = soup.find(id=anchor)
+            start_elem = soup.find(id=anchor)
         else:
-            body = soup.body if soup.body else soup
-            elem = body.find(HEADING_TAGS)
+            start_elem = None
 
-        if elem is None:
-            return None
-
-        heading_html = str(elem) if elem.name in HEADING_TAGS else ''
-        content_html = self._collect_elements_until_next_heading(elem, soup)
+        heading_html, content_html = self._extract_content_and_heading(soup, start_elem)
 
         text = BeautifulSoup(content_html, 'html.parser').get_text() if content_html else ''
         if len(text) < self.min_chars:
@@ -316,6 +305,9 @@ class Extractor:
             idx = self._resolve_toc_target_to_spine_index(item.target)
             if idx is None or idx in skip_spine:
                 continue
+            label_lower = item.label.strip().lower()
+            if label_lower in SKIP_TOC_LABELS:
+                continue
             anchor = item.target.split('#', 1)[1] if '#' in item.target else None
             target_key = (idx, anchor)
             if target_key in seen_targets:
@@ -336,7 +328,7 @@ class Extractor:
             idx = entry['spine_index']
             full_href = self._spine_full_hrefs[idx]
             soup = self._load_soup(full_href)
-            if not soup or self._is_skippable_frontbackmatter(soup):
+            if not soup:
                 continue
 
             self._clean_soup_basic(soup)
@@ -366,7 +358,7 @@ class Extractor:
             if i in skip_spine:
                 continue
             soup = self._load_soup(full_href)
-            if not soup or self._is_skippable_frontbackmatter(soup):
+            if not soup:
                 continue
 
             self._clean_soup_basic(soup)
