@@ -1,6 +1,6 @@
 import re
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
@@ -48,9 +48,9 @@ class Aligner:
         except Exception:
             return None
 
-    def _align_pair(self, src_html: str, tgt_html: str, src_lang, tgt_lang) -> List[Dict[str, str]]:
+    def _align_pair(self, src_html: str, tgt_html: str, src_lang, tgt_lang) -> List[Dict[str, Any]]:
         if not src_html.strip() or not tgt_html.strip():
-            return [{'source_html': src_html, 'target_html': tgt_html}]
+            return [{'source_html': src_html, 'target_html': tgt_html, 'is_paragraph_start': True}]
 
         lang_src = self._detect_language(BeautifulSoup(src_html, 'html.parser').get_text(), src_lang)
         lang_tgt = self._detect_language(BeautifulSoup(tgt_html, 'html.parser').get_text(), tgt_lang)
@@ -58,11 +58,11 @@ class Aligner:
         extractor_src = HtmlSentenceTokenizer(self.splitter)
         extractor_tgt = HtmlSentenceTokenizer(self.splitter)
 
-        src_sents = extractor_src.extract(src_html, lang_src)
-        tgt_sents = extractor_tgt.extract(tgt_html, lang_tgt)
+        src_sents, src_para_starts = extractor_src.extract(src_html, lang_src)
+        tgt_sents, _ = extractor_tgt.extract(tgt_html, lang_tgt)
 
         if not src_sents or not tgt_sents:
-            return [{'source_html': src_html, 'target_html': tgt_html}]
+            return [{'source_html': src_html, 'target_html': tgt_html, 'is_paragraph_start': True}]
 
         src_plain = [s[0] for s in src_sents]
         tgt_plain = [s[0] for s in tgt_sents]
@@ -87,10 +87,17 @@ class Aligner:
                 continue
             src_html_combined = '\n'.join(src_sents[i][1] for i in s_list if i < len(src_sents))
             tgt_html_combined = '\n'.join(tgt_sents[i][1] for i in t_list if i < len(tgt_sents))
-            aligned.append({'source_html': src_html_combined, 'target_html': tgt_html_combined})
+
+            is_para_start = any(src_para_starts[i] for i in s_list if i < len(src_para_starts))
+
+            aligned.append({
+                'source_html': src_html_combined,
+                'target_html': tgt_html_combined,
+                'is_paragraph_start': is_para_start,
+            })
 
         if not aligned:
-            aligned = [{'source_html': src_html, 'target_html': tgt_html}]
+            aligned = [{'source_html': src_html, 'target_html': tgt_html, 'is_paragraph_start': True}]
         return aligned
 
     def run(self) -> List[Dict[str, Any]]:
@@ -138,7 +145,7 @@ class Aligner:
                         alignment = future.result()
                     except Exception as e:
                         self.log.error(f"Error aligning chapter pair {idx}: {e}")
-                        alignment = [{'source_html': '', 'target_html': ''}]
+                        alignment = [{'source_html': '', 'target_html': '', 'is_paragraph_start': True}]
                     output[idx]['alignment'] = alignment
                     progress.update('aligning')
 

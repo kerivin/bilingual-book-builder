@@ -6,6 +6,8 @@ from ebooklib import epub
 import ebooklib
 import logging
 
+from bs4 import BeautifulSoup, Tag
+
 from bbb import progress
 from bbb.epub_file import EpubFile
 from bbb.constants import SRC_FN_PREFIX, TGT_FN_PREFIX
@@ -48,8 +50,6 @@ class BookBuilder:
             new_book.set_cover(cover_item.file_name, cover_item.get_content())
 
     def _copy_styles(self, new_book: epub.EpubBook) -> List[str]:
-        # We do NOT copy any original CSS. Instead we provide a minimal,
-        # generic stylesheet that restores basic formatting without breaking the table.
         return []
 
     def _copy_metadata(self, new_book: epub.EpubBook):
@@ -177,11 +177,47 @@ class BookBuilder:
         )
         return f'<hr class="footnote-separator"/><div class="footnotes"><ol>{items}</ol></div>'
 
+    def _add_indent_to_first_paragraph_tag(self, html: str) -> str:
+        soup = BeautifulSoup(f'<root>{html}</root>', 'html.parser')
+        root = soup.root
+
+        paragraph_tag = None
+        for elem in root.descendants:
+            if not isinstance(elem, Tag):
+                continue
+            if elem.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+                break
+            if elem.name == 'p' or 'paragraph' in elem.get('class', []):
+                paragraph_tag = elem
+                break
+
+        if paragraph_tag is None:
+            for elem in root.descendants:
+                if not isinstance(elem, Tag):
+                    continue
+                if elem.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+                    break
+                if elem.name in ('div', 'p', 'blockquote', 'section'):
+                    paragraph_tag = elem
+                    break
+
+        if paragraph_tag is not None:
+            current_style = paragraph_tag.get('style', '')
+            paragraph_tag['style'] = current_style + '; text-indent: 2em;'
+
+        return ''.join(str(c) for c in root.contents)
+
     def _build_two_column_html(self, aligned):
         rows = []
         for seg in aligned:
             src_html = seg.get('source_html', '')
             tgt_html = seg.get('target_html', '')
+            is_para_start = seg.get('is_paragraph_start', False)
+
+            if is_para_start:
+                src_html = self._add_indent_to_first_paragraph_tag(src_html)
+                tgt_html = self._add_indent_to_first_paragraph_tag(tgt_html)
+
             rows.append(
                 f'<tr>'
                 f'<td class="bilingual-left">{src_html}</td>'
@@ -197,9 +233,6 @@ class BookBuilder:
         css_links = self._copy_styles(new_book)
 
         base_dir = self._get_base_dir()
-
-        # Minimal, generic CSS that restores basic formatting without breaking the table.
-        # The original book's layout CSS is NOT included.
         generic_css = epub.EpubItem(
             uid="generic_css",
             file_name=base_dir + "generic.css",
@@ -210,37 +243,18 @@ class BookBuilder:
                 padding: 0;
             }
 
-            /* Basic text styling */
-            b, strong {
-                font-weight: bold;
-            }
-            i, em, cite {
-                font-style: italic;
-            }
-            u {
-                text-decoration: underline;
-            }
-            small {
-                font-size: 0.8em;
-            }
-            sub, sup {
-                font-size: 0.75em;
-                line-height: 0;
-                position: relative;
-                vertical-align: baseline;
-            }
-            sup {
-                top: -0.5em;
-            }
-            sub {
-                bottom: -0.25em;
-            }
+            b, strong { font-weight: bold; }
+            i, em, cite { font-style: italic; }
+            u { text-decoration: underline; }
+            small { font-size: 0.8em; }
+            sub, sup { font-size: 0.75em; line-height: 0; position: relative; vertical-align: baseline; }
+            sup { top: -0.5em; }
+            sub { bottom: -0.25em; }
 
-            /* Headings */
             h1, h2, h3, h4, h5, h6 {
                 font-weight: bold;
-                margin-top: 0.5em;
-                margin-bottom: 0.2em;
+                margin: 0.5em 0 0.2em 0;
+                padding: 0;
             }
             h1 { font-size: 1.6em; }
             h2 { font-size: 1.4em; }
@@ -249,47 +263,45 @@ class BookBuilder:
             h5 { font-size: 1em; }
             h6 { font-size: 0.9em; }
 
-            /* Paragraphs and common classes */
             p, .paragraph {
                 display: block;
-                margin: 0;
-                padding: 0;
-                text-indent: 2em;    /* match the most common indent */
             }
             blockquote {
                 display: block;
                 margin: 0.5em 1.5em;
             }
-            .calibre10 {
-                /* Often used for verse; ensure it doesn't break layout */
-                margin: 0.5em 1.5em;
-            }
-            .epigraph {
-                margin: 0.5em 1.5em;
-                font-style: italic;
-            }
-            .subtitle {
-                font-weight: bold;
-                text-align: center;
-                margin: 0.5em 0;
-            }
 
-            /* The table itself */
             .bilingual-table {
-                width: 100%;
+                width: 100% !important;
                 border-collapse: collapse;
-                table-layout: fixed;
+                table-layout: fixed !important;
             }
             .bilingual-table td {
                 display: table-cell !important;
                 vertical-align: top;
                 padding: 0.3em 1em;
-                width: 50%;
+                width: 50% !important;
+                box-sizing: border-box !important;
             }
             .bilingual-table,
             .bilingual-table tr,
             .bilingual-table td {
                 border: 0 none transparent !important;
+            }
+
+            .bilingual-left *, .bilingual-right * {
+                margin: 0 !important;
+                padding: 0 !important;
+                float: none !important;
+                clear: none !important;
+                position: static !important;
+                width: auto !important;
+                max-width: none !important;
+                min-width: 0 !important;
+                height: auto !important;
+                max-height: none !important;
+                min-height: 0 !important;
+                box-sizing: content-box !important;
             }
 
             .footnote-ref {
