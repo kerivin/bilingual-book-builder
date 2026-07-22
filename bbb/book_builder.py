@@ -48,25 +48,9 @@ class BookBuilder:
             new_book.set_cover(cover_item.file_name, cover_item.get_content())
 
     def _copy_styles(self, new_book: epub.EpubBook) -> List[str]:
-        css_links = []
-        seen = set()
-        for book in (self.source_book, self.target_book):
-            if book is None:
-                continue
-            for item in book.get_items():
-                if item.get_type() == ebooklib.ITEM_STYLE:
-                    name = item.file_name
-                    if name not in seen:
-                        seen.add(name)
-                        css = epub.EpubItem(
-                            uid=item.get_id() + '_copy',
-                            file_name=name,
-                            media_type='text/css',
-                            content=item.get_content()
-                        )
-                        new_book.add_item(css)
-                        css_links.append(name)
-        return css_links
+        # We do NOT copy any original CSS. Instead we provide a minimal,
+        # generic stylesheet that restores basic formatting without breaking the table.
+        return []
 
     def _copy_metadata(self, new_book: epub.EpubBook):
         def get_metadata(book, key):
@@ -213,85 +197,99 @@ class BookBuilder:
         css_links = self._copy_styles(new_book)
 
         base_dir = self._get_base_dir()
-        bilingual_css = epub.EpubItem(
-            uid="bilingual_css",
-            file_name=base_dir + "bilingual.css",
+
+        # Minimal, generic CSS that restores basic formatting without breaking the table.
+        # The original book's layout CSS is NOT included.
+        generic_css = epub.EpubItem(
+            uid="generic_css",
+            file_name=base_dir + "generic.css",
             media_type='text/css',
             content=b"""
-            /* Ensure the table fills the page and columns are equal */
             body {
-                margin: 0 !important;
-                padding: 0 !important;
+                margin: 0;
+                padding: 0;
             }
 
+            /* Basic text styling */
+            b, strong {
+                font-weight: bold;
+            }
+            i, em, cite {
+                font-style: italic;
+            }
+            u {
+                text-decoration: underline;
+            }
+            small {
+                font-size: 0.8em;
+            }
+            sub, sup {
+                font-size: 0.75em;
+                line-height: 0;
+                position: relative;
+                vertical-align: baseline;
+            }
+            sup {
+                top: -0.5em;
+            }
+            sub {
+                bottom: -0.25em;
+            }
+
+            /* Headings */
+            h1, h2, h3, h4, h5, h6 {
+                font-weight: bold;
+                margin-top: 0.5em;
+                margin-bottom: 0.2em;
+            }
+            h1 { font-size: 1.6em; }
+            h2 { font-size: 1.4em; }
+            h3 { font-size: 1.2em; }
+            h4 { font-size: 1.1em; }
+            h5 { font-size: 1em; }
+            h6 { font-size: 0.9em; }
+
+            /* Paragraphs and common classes */
+            p, .paragraph {
+                display: block;
+                margin: 0;
+                padding: 0;
+                text-indent: 2em;    /* match the most common indent */
+            }
+            blockquote {
+                display: block;
+                margin: 0.5em 1.5em;
+            }
+            .calibre10 {
+                /* Often used for verse; ensure it doesn't break layout */
+                margin: 0.5em 1.5em;
+            }
+            .epigraph {
+                margin: 0.5em 1.5em;
+                font-style: italic;
+            }
+            .subtitle {
+                font-weight: bold;
+                text-align: center;
+                margin: 0.5em 0;
+            }
+
+            /* The table itself */
             .bilingual-table {
-                width: 100% !important;
+                width: 100%;
                 border-collapse: collapse;
-                table-layout: fixed !important;
+                table-layout: fixed;
             }
-
             .bilingual-table td {
                 display: table-cell !important;
                 vertical-align: top;
                 padding: 0.3em 1em;
-                width: 50% !important;
-                box-sizing: border-box !important;
+                width: 50%;
             }
-
             .bilingual-table,
             .bilingual-table tr,
             .bilingual-table td {
                 border: 0 none transparent !important;
-            }
-
-            /* Minimal reset: only kill layout-breaking properties, keep text styling */
-            .bilingual-left *, .bilingual-right * {
-                margin: 0 !important;
-                padding: 0 !important;
-                border: none !important;
-                background: transparent !important;
-                float: none !important;
-                clear: none !important;
-                position: static !important;
-                width: auto !important;
-                max-width: none !important;
-                min-width: 0 !important;
-                height: auto !important;
-                max-height: none !important;
-                min-height: 0 !important;
-                box-shadow: none !important;
-                visibility: visible !important;
-                opacity: 1 !important;
-                vertical-align: baseline !important;
-                text-align: left !important;
-                line-height: inherit !important;
-                font-size: inherit !important;
-                color: inherit !important;
-                /* DO NOT reset font-style, font-weight, text-indent, text-decoration */
-            }
-
-            /* Explicitly allow block-level tags to behave normally */
-            .bilingual-left p, .bilingual-left div, .bilingual-left blockquote,
-            .bilingual-left section, .bilingual-left h1, .bilingual-left h2,
-            .bilingual-left h3, .bilingual-left h4, .bilingual-left h5,
-            .bilingual-left h6, .bilingual-left ul, .bilingual-left ol,
-            .bilingual-left li,
-            .bilingual-right p, .bilingual-right div, .bilingual-right blockquote,
-            .bilingual-right section, .bilingual-right h1, .bilingual-right h2,
-            .bilingual-right h3, .bilingual-right h4, .bilingual-right h5,
-            .bilingual-right h6, .bilingual-right ul, .bilingual-right ol,
-            .bilingual-right li {
-                display: block !important;
-            }
-
-            /* Keep inline elements inline */
-            .bilingual-left span, .bilingual-left a, .bilingual-left i,
-            .bilingual-left b, .bilingual-left em, .bilingual-left strong,
-            .bilingual-left abbr,
-            .bilingual-right span, .bilingual-right a, .bilingual-right i,
-            .bilingual-right b, .bilingual-right em, .bilingual-right strong,
-            .bilingual-right abbr {
-                display: inline !important;
             }
 
             .footnote-ref {
@@ -312,8 +310,8 @@ class BookBuilder:
             }
             """
         )
-        new_book.add_item(bilingual_css)
-        css_links.append(bilingual_css.file_name)
+        new_book.add_item(generic_css)
+        css_links.append(generic_css.file_name)
 
         new_spine_ids = []
         toc_entries = []
