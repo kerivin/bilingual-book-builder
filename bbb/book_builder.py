@@ -195,12 +195,11 @@ class BookBuilder:
 
     def _build_two_column_html(self, aligned):
         rows = []
-        for i, seg in enumerate(aligned):
-            row_class = 'class="first-sentence"' if i == 0 else ''
+        for seg in aligned:
             src_html = seg.get('source_html', '')
             tgt_html = seg.get('target_html', '')
             rows.append(
-                f'<tr {row_class}>'
+                f'<tr>'
                 f'<td class="bilingual-left">{src_html}</td>'
                 f'<td class="bilingual-right">{tgt_html}</td>'
                 f'</tr>'
@@ -219,50 +218,59 @@ class BookBuilder:
             file_name=base_dir + "bilingual.css",
             media_type='text/css',
             content=b"""
+            /* Ensure the table fills the page and columns are equal */
+            body {
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
             .bilingual-table {
                 width: 100% !important;
                 border-collapse: collapse;
                 table-layout: fixed !important;
-                box-sizing: border-box !important;
             }
+
             .bilingual-table td {
                 display: table-cell !important;
                 vertical-align: top;
-                padding: 0.3em 0.5em;
+                padding: 0.3em 1em;
                 width: 50% !important;
                 box-sizing: border-box !important;
             }
+
             .bilingual-table,
             .bilingual-table tr,
             .bilingual-table td {
                 border: 0 none transparent !important;
             }
 
-            .bilingual-left, .bilingual-right {
-                font-size: 1rem !important;
-                font-weight: normal !important;
-                font-style: normal !important;
-                line-height: 1.5 !important;
-                color: #000 !important;
-                text-align: left !important;
-            }
+            /* Minimal reset: only kill layout-breaking properties, keep text styling */
             .bilingual-left *, .bilingual-right * {
-                all: unset !important;
-                display: revert !important;
                 margin: 0 !important;
                 padding: 0 !important;
-                font-size: inherit !important;
-                font-weight: inherit !important;
-                font-style: inherit !important;
-                line-height: inherit !important;
-                color: inherit !important;
-                background: transparent !important;
                 border: none !important;
+                background: transparent !important;
+                float: none !important;
+                clear: none !important;
+                position: static !important;
+                width: auto !important;
+                max-width: none !important;
+                min-width: 0 !important;
+                height: auto !important;
+                max-height: none !important;
+                min-height: 0 !important;
                 box-shadow: none !important;
                 visibility: visible !important;
                 opacity: 1 !important;
+                vertical-align: baseline !important;
+                text-align: left !important;
+                line-height: inherit !important;
+                font-size: inherit !important;
+                color: inherit !important;
+                /* DO NOT reset font-style, font-weight, text-indent, text-decoration */
             }
 
+            /* Explicitly allow block-level tags to behave normally */
             .bilingual-left p, .bilingual-left div, .bilingual-left blockquote,
             .bilingual-left section, .bilingual-left h1, .bilingual-left h2,
             .bilingual-left h3, .bilingual-left h4, .bilingual-left h5,
@@ -275,6 +283,8 @@ class BookBuilder:
             .bilingual-right li {
                 display: block !important;
             }
+
+            /* Keep inline elements inline */
             .bilingual-left span, .bilingual-left a, .bilingual-left i,
             .bilingual-left b, .bilingual-left em, .bilingual-left strong,
             .bilingual-left abbr,
@@ -282,38 +292,6 @@ class BookBuilder:
             .bilingual-right b, .bilingual-right em, .bilingual-right strong,
             .bilingual-right abbr {
                 display: inline !important;
-            }
-
-            .bilingual-left b, .bilingual-left strong,
-            .bilingual-right b, .bilingual-right strong {
-                font-weight: bold !important;
-            }
-            .bilingual-left i, .bilingual-left em,
-            .bilingual-right i, .bilingual-right em {
-                font-style: italic !important;
-            }
-
-            .bilingual-left h1, .bilingual-left h2, .bilingual-left h3,
-            .bilingual-left h4, .bilingual-left h5, .bilingual-left h6,
-            .bilingual-right h1, .bilingual-right h2, .bilingual-right h3,
-            .bilingual-right h4, .bilingual-right h5, .bilingual-right h6 {
-                font-size: 1.1em !important;
-                font-weight: bold !important;
-                margin-top: 0.5em !important;
-                margin-bottom: 0.2em !important;
-            }
-
-            .bilingual-left p, .bilingual-right p {
-                margin-bottom: 0.5em !important;
-            }
-            .bilingual-left blockquote, .bilingual-right blockquote {
-                margin-left: 1.5em !important;
-                margin-bottom: 0.5em !important;
-            }
-
-            .bilingual-table tr:first-child td.bilingual-left > *:first-child,
-            .bilingual-table tr:first-child td.bilingual-right > *:first-child {
-                text-indent: 1.5em !important;
             }
 
             .footnote-ref {
@@ -375,16 +353,7 @@ class BookBuilder:
                 )
                 footnotes_html = self._build_footnote_list(footnote_items)
 
-                body_class = ''
-                if source and source.get('body_class'):
-                    body_class = source['body_class']
-                if target and target.get('body_class') and target['body_class'] not in body_class:
-                    body_class += ' ' + target['body_class']
-                body_class = body_class.strip()
-
                 full_body = body_content + '\n' + footnotes_html
-                if body_class:
-                    full_body = f'<div class="{body_class}">\n{full_body}\n</div>'
 
                 toc_path = []
                 if target:
