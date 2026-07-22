@@ -12,9 +12,10 @@ from bbb.epub_file import EpubFile
 HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 TAG_BLACKLIST = {'script', 'style', 'img', 'figure', 'svg', 'canvas'}
 
-SKIP_TOC_LABELS = {
-    'titlepage', 'imprint', 'halftitlepage', 'halftitle', 'colophon',
-    'copyright', 'also by', 'other books', 'praise for'
+SKIP_CHAPTER_TYPES = {
+    'titlepage', 'title-page', 'imprint', 'halftitlepage', 'halftitle', 'colophon',
+    'copyright', 'copyright-page', 'also by', 'other books', 'praise for',
+    'cover', 'toc'
 }
 
 
@@ -160,10 +161,9 @@ class Extractor:
         return f"{self._opf_base}{href}"
 
     def _find_guide_skip_indices(self) -> set:
-        skip_types = {'cover', 'title-page', 'toc', 'copyright-page'}
         skip_indices = set()
         for ref in getattr(self.doc.package, 'guide', []) or []:
-            if ref.get('type', '').lower() in skip_types:
+            if ref.get('type', '').lower() in SKIP_CHAPTER_TYPES:
                 idx = self._resolve_toc_target_to_spine_index(ref['href'])
                 if idx is not None:
                     skip_indices.add(idx)
@@ -204,6 +204,14 @@ class Extractor:
             tag.decompose()
         for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
             comment.extract()
+
+    def _is_skip_page(self, soup: BeautifulSoup) -> bool:
+        for tag in soup.find_all(True):
+            if tag.get('epub:type', '').lower() in SKIP_CHAPTER_TYPES:
+                return True
+            if tag.get('id', '').lower() in SKIP_CHAPTER_TYPES:
+                return True
+        return False
 
     def _remove_footnotes_and_placeholders(self, soup: BeautifulSoup) -> List[dict]:
         placeholders = []
@@ -285,7 +293,7 @@ class Extractor:
             if idx is None or idx in skip_spine:
                 continue
             label_lower = item.label.strip().lower()
-            if label_lower in SKIP_TOC_LABELS:
+            if label_lower in SKIP_CHAPTER_TYPES:
                 continue
             anchor = item.target.split('#', 1)[1] if '#' in item.target else None
             target_key = (idx, anchor)
@@ -311,6 +319,9 @@ class Extractor:
                 continue
 
             self._clean_soup_basic(soup)
+            if self._is_skip_page(soup):
+                continue
+
             body_class = ' '.join(soup.body.get('class', [])) if soup.body else ''
             anchors_in_file = {e['anchor'] for e in toc_entries if e['spine_index'] == idx and e['anchor']}
             saved_footnotes = self.footnotes
@@ -341,6 +352,8 @@ class Extractor:
                 continue
 
             self._clean_soup_basic(soup)
+            if self._is_skip_page(soup):
+                continue
             self._remove_footnotes_and_placeholders(soup)
 
             headings_in_file = []
