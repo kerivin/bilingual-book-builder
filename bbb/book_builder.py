@@ -220,26 +220,22 @@ class BookBuilder:
             media_type='text/css',
             content=b"""
             .bilingual-table {
-                width: 100%;
+                width: 100% !important;
                 border-collapse: collapse;
-                table-layout: fixed;
+                table-layout: fixed !important;
+                box-sizing: border-box !important;
             }
             .bilingual-table td {
                 display: table-cell !important;
                 vertical-align: top;
                 padding: 0.3em 0.5em;
-                width: 50%;
-            }
-            tr.first-sentence td {
-                text-indent: 1.5em;
+                width: 50% !important;
+                box-sizing: border-box !important;
             }
             .bilingual-table,
             .bilingual-table tr,
             .bilingual-table td {
                 border: 0 none transparent !important;
-                border-style: none !important;
-                border-width: 0 !important;
-                border-color: transparent !important;
             }
 
             .bilingual-left, .bilingual-right {
@@ -247,56 +243,77 @@ class BookBuilder:
                 font-weight: normal !important;
                 font-style: normal !important;
                 line-height: 1.5 !important;
+                color: #000 !important;
                 text-align: left !important;
-                color: inherit !important;
-                background: transparent !important;
-                margin: 0 !important;
-                padding: 0.3em 0.5em !important;
             }
-
             .bilingual-left *, .bilingual-right * {
-                visibility: visible !important;
-                opacity: 1 !important;
-                background: transparent !important;
-                border: none !important;
-                box-shadow: none !important;
-                text-shadow: none !important;
+                all: unset !important;
+                display: revert !important;
                 margin: 0 !important;
                 padding: 0 !important;
                 font-size: inherit !important;
                 font-weight: inherit !important;
                 font-style: inherit !important;
                 line-height: inherit !important;
-                text-align: inherit !important;
                 color: inherit !important;
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                visibility: visible !important;
+                opacity: 1 !important;
             }
 
-            .bilingual-left p, .bilingual-right p,
-            .bilingual-left div, .bilingual-right div,
-            .bilingual-left blockquote, .bilingual-right blockquote {
+            .bilingual-left p, .bilingual-left div, .bilingual-left blockquote,
+            .bilingual-left section, .bilingual-left h1, .bilingual-left h2,
+            .bilingual-left h3, .bilingual-left h4, .bilingual-left h5,
+            .bilingual-left h6, .bilingual-left ul, .bilingual-left ol,
+            .bilingual-left li,
+            .bilingual-right p, .bilingual-right div, .bilingual-right blockquote,
+            .bilingual-right section, .bilingual-right h1, .bilingual-right h2,
+            .bilingual-right h3, .bilingual-right h4, .bilingual-right h5,
+            .bilingual-right h6, .bilingual-right ul, .bilingual-right ol,
+            .bilingual-right li {
                 display: block !important;
-                margin-bottom: 0.5em !important;
             }
-            .bilingual-left span, .bilingual-right span,
-            .bilingual-left i, .bilingual-right i,
-            .bilingual-left b, .bilingual-right b,
-            .bilingual-left abbr, .bilingual-right abbr {
+            .bilingual-left span, .bilingual-left a, .bilingual-left i,
+            .bilingual-left b, .bilingual-left em, .bilingual-left strong,
+            .bilingual-left abbr,
+            .bilingual-right span, .bilingual-right a, .bilingual-right i,
+            .bilingual-right b, .bilingual-right em, .bilingual-right strong,
+            .bilingual-right abbr {
                 display: inline !important;
+            }
+
+            .bilingual-left b, .bilingual-left strong,
+            .bilingual-right b, .bilingual-right strong {
+                font-weight: bold !important;
+            }
+            .bilingual-left i, .bilingual-left em,
+            .bilingual-right i, .bilingual-right em {
+                font-style: italic !important;
+            }
+
+            .bilingual-left h1, .bilingual-left h2, .bilingual-left h3,
+            .bilingual-left h4, .bilingual-left h5, .bilingual-left h6,
+            .bilingual-right h1, .bilingual-right h2, .bilingual-right h3,
+            .bilingual-right h4, .bilingual-right h5, .bilingual-right h6 {
+                font-size: 1.1em !important;
+                font-weight: bold !important;
+                margin-top: 0.5em !important;
+                margin-bottom: 0.2em !important;
+            }
+
+            .bilingual-left p, .bilingual-right p {
+                margin-bottom: 0.5em !important;
             }
             .bilingual-left blockquote, .bilingual-right blockquote {
                 margin-left: 1.5em !important;
-            }
-            .bilingual-left section, .bilingual-right section {
-                display: block !important;
+                margin-bottom: 0.5em !important;
             }
 
-            .bilingual-left b, .bilingual-right b,
-            .bilingual-left strong, .bilingual-right strong {
-                font-weight: bold !important;
-            }
-            .bilingual-left i, .bilingual-right i,
-            .bilingual-left em, .bilingual-right em {
-                font-style: italic !important;
+            .bilingual-table tr:first-child td.bilingual-left > *:first-child,
+            .bilingual-table tr:first-child td.bilingual-right > *:first-child {
+                text-indent: 1.5em !important;
             }
 
             .footnote-ref {
