@@ -15,6 +15,7 @@ from sentence_transformers import SentenceTransformer
 from bertalign import Bertalign
 from bertalign.encoder import Encoder
 
+
 class Aligner:
     def __init__(
         self,
@@ -101,7 +102,6 @@ class Aligner:
                 ch = self.source_chapters[src_idx]
                 block['source'] = {
                     'toc_path': ch['toc_path'],
-                    'heading_html': ch.get('heading_html', ''),
                     'content_html': ch.get('content_html', '') if tgt_idx is not None else None,
                     'index': ch['index'],
                     'body_class': ch.get('body_class', ''),
@@ -111,7 +111,6 @@ class Aligner:
                 ch = self.target_chapters[tgt_idx]
                 block['target'] = {
                     'toc_path': ch['toc_path'],
-                    'heading_html': ch.get('heading_html', ''),
                     'content_html': ch.get('content_html', '') if src_idx is not None else None,
                     'index': ch['index'],
                     'body_class': ch.get('body_class', ''),

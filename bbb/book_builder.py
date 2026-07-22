@@ -233,21 +233,50 @@ class BookBuilder:
             tr.first-sentence td {
                 text-indent: 1.5em;
             }
-            .bilingual-heading {
-                font-weight: bold;
-                text-align: center;
-                white-space: pre-line;
-                margin: 0.5em 0;
-            }
             .bilingual-table,
             .bilingual-table tr,
-            .bilingual-table td,
-            .bilingual-heading {
+            .bilingual-table td {
                 border: 0 none transparent !important;
                 border-style: none !important;
                 border-width: 0 !important;
                 border-color: transparent !important;
             }
+            .bilingual-left, .bilingual-right,
+            .bilingual-left *, .bilingual-right * {
+                visibility: visible !important;
+                opacity: 1 !important;
+                display: revert !important;
+            }
+            .bilingual-left section, .bilingual-right section,
+            .bilingual-left blockquote, .bilingual-right blockquote,
+            .bilingual-left div, .bilingual-right div,
+            .bilingual-left p, .bilingual-right p {
+                display: block !important;
+            }
+            .bilingual-left span, .bilingual-right span,
+            .bilingual-left i, .bilingual-right i,
+            .bilingual-left b, .bilingual-right b,
+            .bilingual-left abbr, .bilingual-right abbr {
+                display: inline !important;
+            }
+            .bilingual-left table, .bilingual-right table {
+                display: table !important;
+            }
+
+            .bilingual-left blockquote,
+            .bilingual-right blockquote {
+                margin: 0 0 0 2em !important;
+                padding: 0 !important;
+            }
+            .bilingual-left p,
+            .bilingual-right p {
+                margin: 0 0 0.5em 0 !important;
+            }
+            .bilingual-left div,
+            .bilingual-right div {
+                margin: 0 !important;
+            }
+
             .footnote-ref {
                 font-size: 0.75em;
                 vertical-align: super;
@@ -278,13 +307,6 @@ class BookBuilder:
                 target = block.get('target')
                 if not source and not target:
                     continue
-
-                heading_parts = []
-                if source and source.get('heading_html'):
-                    heading_parts.append(source['heading_html'])
-                if target and target.get('heading_html'):
-                    heading_parts.append(target['heading_html'])
-                heading_html = '<div class="bilingual-heading">' + '<br/>'.join(heading_parts) + '</div>' if heading_parts else ''
 
                 alignment = block.get('alignment', [])
                 if source and target and alignment:
@@ -321,7 +343,7 @@ class BookBuilder:
                     body_class += ' ' + target['body_class']
                 body_class = body_class.strip()
 
-                full_body = heading_html + '\n' + body_content + '\n' + footnotes_html
+                full_body = body_content + '\n' + footnotes_html
                 if body_class:
                     full_body = f'<div class="{body_class}">\n{full_body}\n</div>'
 

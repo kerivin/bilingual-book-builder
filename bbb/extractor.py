@@ -62,7 +62,7 @@ class Extractor:
                 self.log.info(f"{ch['toc_path'][-1] if ch['toc_path'] else ''}\n{ch['preview']}")
                 utils.print_horizontal_line(self.log.info)
 
-    def _create_chapter(self, toc_path, heading_html, content_html, item_id,
+    def _create_chapter(self, toc_path, content_html, item_id,
                         body_class='', footnote_placeholders=None):
         text = BeautifulSoup(content_html, 'html.parser').get_text() if content_html else ''
         word_count = len(text.split())
@@ -71,7 +71,6 @@ class Extractor:
             preview += '…'
         return {
             'toc_path': toc_path,
-            'heading_html': heading_html or '',
             'content_html': content_html or '',
             'word_count': word_count,
             'preview': preview,
@@ -234,17 +233,10 @@ class Extractor:
                 a_tag.replace_with(token)
         return placeholders
 
-    def _extract_content_and_heading(self, soup, start_elem):
+    def _extract_content(self, soup, start_elem):
         if start_elem is None:
             body = soup.body if soup.body else soup
-            content_html = str(body) if body else ''
-            heading_html = ''
-            if body:
-                first_heading = body.find(HEADING_TAGS)
-                if first_heading:
-                    heading_html = str(first_heading)
-            return heading_html, content_html
-
+            return str(body) if body else ''
         collected = [str(start_elem)]
         current = start_elem.find_next_sibling()
         while current is not None:
@@ -252,26 +244,14 @@ class Extractor:
                 break
             collected.append(str(current))
             current = current.find_next_sibling()
-        content_html = ''.join(collected)
-        heading_html = ''
-        if start_elem.name in HEADING_TAGS:
-            heading_html = str(start_elem)
-        else:
-            first_heading = start_elem.find(HEADING_TAGS)
-            if first_heading:
-                heading_html = str(first_heading)
-        return heading_html, content_html
+        return ''.join(collected)
 
     def _extract_chapter_from_toc_entry(self, soup, entry, body_class, placeholders):
         anchor = entry['anchor']
         item_id = self._spine_idrefs[entry['spine_index']]
 
-        if anchor:
-            start_elem = soup.find(id=anchor)
-        else:
-            start_elem = None
-
-        heading_html, content_html = self._extract_content_and_heading(soup, start_elem)
+        start_elem = soup.find(id=anchor) if anchor else None
+        content_html = self._extract_content(soup, start_elem)
 
         text = BeautifulSoup(content_html, 'html.parser').get_text() if content_html else ''
         if len(text) < self.min_chars:
@@ -279,7 +259,6 @@ class Extractor:
 
         return self._create_chapter(
             toc_path=list(entry['toc_path']),
-            heading_html=heading_html,
             content_html=content_html,
             item_id=item_id,
             body_class=body_class,
@@ -402,7 +381,6 @@ class Extractor:
             wrapped_html = f'<div>{body}</div>'
             chapters.append(self._create_chapter(
                 toc_path=[title],
-                heading_html=heading_html,
                 content_html=wrapped_html,
                 item_id=None,
                 body_class='',
