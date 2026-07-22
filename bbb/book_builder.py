@@ -227,7 +227,7 @@ class BookBuilder:
             .bilingual-table td {
                 display: table-cell !important;
                 vertical-align: top;
-                padding: 0.3em 1em;
+                padding: 0.3em 0.5em;
                 width: 50%;
             }
             tr.first-sentence td {
@@ -241,17 +241,41 @@ class BookBuilder:
                 border-width: 0 !important;
                 border-color: transparent !important;
             }
-            .bilingual-left, .bilingual-right,
+
+            .bilingual-left, .bilingual-right {
+                font-size: 1rem !important;
+                font-weight: normal !important;
+                font-style: normal !important;
+                line-height: 1.5 !important;
+                text-align: left !important;
+                color: inherit !important;
+                background: transparent !important;
+                margin: 0 !important;
+                padding: 0.3em 0.5em !important;
+            }
+
             .bilingual-left *, .bilingual-right * {
                 visibility: visible !important;
                 opacity: 1 !important;
-                display: revert !important;
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                text-shadow: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                font-size: inherit !important;
+                font-weight: inherit !important;
+                font-style: inherit !important;
+                line-height: inherit !important;
+                text-align: inherit !important;
+                color: inherit !important;
             }
-            .bilingual-left section, .bilingual-right section,
-            .bilingual-left blockquote, .bilingual-right blockquote,
+
+            .bilingual-left p, .bilingual-right p,
             .bilingual-left div, .bilingual-right div,
-            .bilingual-left p, .bilingual-right p {
+            .bilingual-left blockquote, .bilingual-right blockquote {
                 display: block !important;
+                margin-bottom: 0.5em !important;
             }
             .bilingual-left span, .bilingual-right span,
             .bilingual-left i, .bilingual-right i,
@@ -259,22 +283,20 @@ class BookBuilder:
             .bilingual-left abbr, .bilingual-right abbr {
                 display: inline !important;
             }
-            .bilingual-left table, .bilingual-right table {
-                display: table !important;
+            .bilingual-left blockquote, .bilingual-right blockquote {
+                margin-left: 1.5em !important;
+            }
+            .bilingual-left section, .bilingual-right section {
+                display: block !important;
             }
 
-            .bilingual-left blockquote,
-            .bilingual-right blockquote {
-                margin: 0 0 0 2em !important;
-                padding: 0 !important;
+            .bilingual-left b, .bilingual-right b,
+            .bilingual-left strong, .bilingual-right strong {
+                font-weight: bold !important;
             }
-            .bilingual-left p,
-            .bilingual-right p {
-                margin: 0 0 0.5em 0 !important;
-            }
-            .bilingual-left div,
-            .bilingual-right div {
-                margin: 0 !important;
+            .bilingual-left i, .bilingual-right i,
+            .bilingual-left em, .bilingual-right em {
+                font-style: italic !important;
             }
 
             .footnote-ref {
