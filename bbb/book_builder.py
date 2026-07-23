@@ -278,6 +278,7 @@ class BookBuilder:
             blockquote {
                 display: block;
                 margin: 0.5em 1.5em;
+                font-style: italic;
             }
 
             .bilingual-table {
