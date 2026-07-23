@@ -26,6 +26,11 @@ class HtmlSentenceTokenizer:
 
         body = root.body if hasattr(root, 'body') and root.body else root
 
+        # break blocks that contain <br> into separate blocks per line
+        for block_elem in body.find_all(BLOCK_TAGS):
+            if block_elem.find('br'):
+                self._split_block_at_br(block_elem)
+
         flat_sentences = []
         block_lengths = []
 
@@ -76,6 +81,36 @@ class HtmlSentenceTokenizer:
                 block_lengths.append(len(block_sentences))
 
         return flat_sentences, block_lengths
+
+    def _split_block_at_br(self, block_elem: Tag) -> None:
+        """Replace a block element containing <br> with separate sibling blocks, one per br-separated segment."""
+        # Collect all children, splitting at <br> into groups
+        segments = []          # list of lists of nodes for each segment
+        current_segment = []
+        for child in block_elem.children:
+            if isinstance(child, Tag) and child.name == 'br':
+                if current_segment:
+                    segments.append(current_segment)
+                    current_segment = []
+            else:
+                current_segment.append(child)
+        if current_segment:
+            segments.append(current_segment)
+
+        if len(segments) <= 1:
+            return   # no <br> or only one segment, nothing to split
+
+        parent = block_elem.parent
+        # Create new blocks for each segment and insert them before the old block
+        for seg_nodes in segments:
+            new_block = BeautifulSoup('', 'html.parser').new_tag(
+                block_elem.name,
+                attrs=dict(block_elem.attrs) if block_elem.attrs else None
+            )
+            for node in seg_nodes:
+                new_block.append(node)
+            block_elem.insert_before(new_block)
+        block_elem.decompose()
 
     def _remove_blacklisted(self, soup: BeautifulSoup) -> None:
         for tag in soup(['script', 'style', 'img', 'figure', 'svg', 'canvas']):
