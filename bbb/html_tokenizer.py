@@ -15,7 +15,7 @@ class HtmlSentenceTokenizer:
     def __init__(self, splitter: Splitter):
         self.splitter = splitter
 
-    def extract(self, html: str, language: Language) -> Tuple[List[Tuple[str, str]], List[bool]]:
+    def extract(self, html: str, language: Language) -> List[Tuple[str, str]]:
         soup = BeautifulSoup(html, 'html.parser')
         self._remove_blacklisted(soup)
 
@@ -27,74 +27,45 @@ class HtmlSentenceTokenizer:
 
         self._replace_br_with_placeholder(root)
 
-        flat_text = root.get_text()
-        norm_flat, norm_to_raw = self._normalize_and_map(flat_text)
+        full_text = root.get_text()
+        norm_text, norm_to_raw = self._normalize_and_map(full_text)
 
-        if not norm_flat.strip():
-            return [], []
+        if not norm_text.strip():
+            return []
 
-        para_text = root.get_text(separator='\n')
-        norm_para = self._normalize_for_paragraphs(para_text)
+        paragraph_groups = self.splitter.run(norm_text, language)
+        if not paragraph_groups or not paragraph_groups[0]:
+            return [(norm_text.strip(), str(root))]
 
-        groups_flat = self.splitter.run(norm_flat, language)
-        if not groups_flat or not groups_flat[0]:
-            return [(norm_flat.strip(), str(root))], [True]
+        all_sents = [s for para in paragraph_groups for s in para if s.strip()]
+        if not all_sents:
+            return [(norm_text.strip(), str(root))]
 
-        flat_sents = [s for para in groups_flat for s in para if s.strip()]
-        if not flat_sents:
-            return [(norm_flat.strip(), str(root))], [True]
-
-        sent_positions = []
+        results = []
         last_pos = 0
-        for sent in flat_sents:
-            pos = norm_flat.find(sent, last_pos)
+        for sent in all_sents:
+            pos = norm_text.find(sent, last_pos)
             if pos == -1:
                 stripped = re.sub(r'\s+', ' ', sent).strip()
-                pos = norm_flat.find(stripped, last_pos)
+                pos = norm_text.find(stripped, last_pos)
             if pos == -1:
                 pattern = re.escape(sent)
                 pattern = re.sub(r'\\ ', r'\\s+', pattern)
-                match = re.search(pattern, norm_flat[last_pos:])
+                match = re.search(pattern, norm_text[last_pos:])
                 if match:
                     pos = last_pos + match.start()
                 else:
                     continue
             end = pos + len(sent)
             last_pos = end
-            sent_positions.append((pos, end))
 
-        para_groups = self.splitter.run(norm_para, language)
-        para_starts = [False] * len(flat_sents)
-
-        if para_groups and para_groups[0]:
-            next_flat_idx = 0
-            for group in para_groups:
-                first = group[0].strip() if group else ''
-                if not first:
-                    continue
-                for idx in range(next_flat_idx, len(flat_sents)):
-                    if flat_sents[idx].strip() == first:
-                        para_starts[idx] = True
-                        next_flat_idx = idx + 1
-                        break
-
-        results = []
-        for i, sent in enumerate(flat_sents):
-            pos = sent_positions[i][0]
-            end = sent_positions[i][1]
             raw_start = norm_to_raw[pos] if pos < len(norm_to_raw) else 0
-            raw_end = norm_to_raw[end] if end < len(norm_to_raw) else len(flat_text)
+            raw_end = norm_to_raw[end] if end < len(norm_to_raw) else len(full_text)
             fragment = self._extract_fragment(root, raw_start, raw_end)
             fragment = fragment.replace(BR_PLACEHOLDER, BR_TAG)
             results.append((sent, fragment))
 
-        return results, para_starts
-
-    def _normalize_for_paragraphs(self, text: str) -> str:
-        text = re.sub(r'[^\S\n]+', ' ', text)
-        text = re.sub(r' *\n *', '\n', text)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        return text.strip()
+        return results
 
     def _remove_blacklisted(self, soup: BeautifulSoup) -> None:
         for tag in soup(['script', 'style', 'img', 'figure', 'svg', 'canvas']):

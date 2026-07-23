@@ -177,53 +177,55 @@ class BookBuilder:
         )
         return f'<hr class="footnote-separator"/><div class="footnotes"><ol>{items}</ol></div>'
 
-    def _add_indent_to_first_paragraph_tag(self, html: str) -> str:
+    def _set_text_indent(self, html: str, indent: str) -> str:
         soup = BeautifulSoup(f'<root>{html}</root>', 'html.parser')
         root = soup.root
 
-        paragraph_tag = None
+        target = None
         for elem in root.descendants:
-            if not isinstance(elem, Tag):
+            if elem is None or not isinstance(elem, Tag):
                 continue
             if elem.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
                 break
             if elem.name == 'p' or 'paragraph' in elem.get('class', []):
-                paragraph_tag = elem
+                target = elem
                 break
 
-        if paragraph_tag is None:
+        if target is None:
             for elem in root.descendants:
-                if not isinstance(elem, Tag):
+                if elem is None or not isinstance(elem, Tag):
                     continue
                 if elem.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
                     break
                 if elem.name in ('div', 'p', 'blockquote', 'section'):
-                    paragraph_tag = elem
+                    target = elem
                     break
 
-        if paragraph_tag is not None:
-            current_style = paragraph_tag.get('style', '')
-            paragraph_tag['style'] = current_style + '; text-indent: 2em;'
+        if target is not None:
+            target['style'] = f"text-indent: {indent} !important;"
 
         return ''.join(str(c) for c in root.contents)
 
-    def _build_two_column_html(self, aligned):
+    def _build_two_column_html(self, aligned_paras):
         rows = []
-        for seg in aligned:
-            src_html = seg.get('source_html', '')
-            tgt_html = seg.get('target_html', '')
-            is_para_start = seg.get('is_paragraph_start', False)
+        for para in aligned_paras:
+            for i, seg in enumerate(para):
+                src_html = seg.get('source_html', '')
+                tgt_html = seg.get('target_html', '')
 
-            if is_para_start:
-                src_html = self._add_indent_to_first_paragraph_tag(src_html)
-                tgt_html = self._add_indent_to_first_paragraph_tag(tgt_html)
+                if i == 0:
+                    src_html = self._set_text_indent(src_html, '2em')
+                    tgt_html = self._set_text_indent(tgt_html, '2em')
+                else:
+                    src_html = self._set_text_indent(src_html, '0')
+                    tgt_html = self._set_text_indent(tgt_html, '0')
 
-            rows.append(
-                f'<tr>'
-                f'<td class="bilingual-left">{src_html}</td>'
-                f'<td class="bilingual-right">{tgt_html}</td>'
-                f'</tr>'
-            )
+                rows.append(
+                    f'<tr>'
+                    f'<td class="bilingual-left">{src_html}</td>'
+                    f'<td class="bilingual-right">{tgt_html}</td>'
+                    f'</tr>'
+                )
         return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
 
     def run(self) -> epub.EpubBook | None:
