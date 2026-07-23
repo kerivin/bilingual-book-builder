@@ -257,6 +257,7 @@ class BookBuilder:
                 font-weight: bold;
                 margin: 0.5em 0 0.2em 0;
                 padding: 0;
+                text-align: center;
             }
             h1 { font-size: 1.6em; }
             h2 { font-size: 1.4em; }
@@ -264,6 +265,12 @@ class BookBuilder:
             h4 { font-size: 1.1em; }
             h5 { font-size: 1em; }
             h6 { font-size: 0.9em; }
+
+            .subtitle {
+                font-weight: bold;
+                text-align: center;
+                margin: 0.5em 0;
+            }
 
             p, .paragraph {
                 display: block;
