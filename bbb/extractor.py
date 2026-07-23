@@ -79,7 +79,7 @@ class Extractor:
     def _create_chapter(self, toc_path: List[str], content_html: str,
                         item_id: Optional[str] = None, body_class: str = '',
                         footnote_placeholders: Optional[List[Dict]] = None) -> Dict[str, Any]:
-        text = BeautifulSoup(content_html, 'html.parser').get_text() if content_html else ''
+        text = BeautifulSoup(content_html, 'html.parser').get_text(separator=' ') if content_html else ''
         word_count = len(text.split())
         preview = ' '.join(text.split()[:self.preview_words])
         if len(text.split()) > self.preview_words:
@@ -307,12 +307,8 @@ class Extractor:
             anchor_id = node.get('id') if node.get('id') in anchor_elements else None
             if anchor_id is not None:
                 current_anchor = anchor_id
-                if node.name in HEADINGISH_TAGS:
-                    return
             elif root_id and node is anchor_elements.get(root_id):
                 current_anchor = root_id
-                if node.name in HEADINGISH_TAGS:
-                    return
 
             if current_anchor is not None:
                 region_html[current_anchor].append(str(node))
