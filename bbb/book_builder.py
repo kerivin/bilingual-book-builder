@@ -206,6 +206,16 @@ class BookBuilder:
 
         return ''.join(str(c) for c in root.contents)
 
+    def _apply_indent_to_first_block(self, html_str: str) -> str:
+        soup = BeautifulSoup(html_str, 'html.parser')
+        if soup.contents:
+            first_tag = soup.contents[0] if isinstance(soup.contents[0], Tag) else soup.find()
+            if first_tag and hasattr(first_tag, 'attrs'):
+                current_style = first_tag.get('style', '')
+                new_style = (current_style + '; ' if current_style else '') + 'text-indent: 2em !important'
+                first_tag['style'] = new_style
+        return str(soup) if soup else html_str
+
     def _build_two_column_html(self, aligned_paras):
         rows = []
         for para in aligned_paras:
@@ -214,11 +224,8 @@ class BookBuilder:
                 tgt_html = seg.get('target_html', '')
 
                 if i == 0:
-                    src_html = self._set_text_indent(src_html, '2em')
-                    tgt_html = self._set_text_indent(tgt_html, '2em')
-                else:
-                    src_html = self._set_text_indent(src_html, '0')
-                    tgt_html = self._set_text_indent(tgt_html, '0')
+                    src_html = self._apply_indent_to_first_block(src_html)
+                    tgt_html = self._apply_indent_to_first_block(tgt_html)
 
                 rows.append(
                     f'<tr>'
@@ -278,7 +285,6 @@ class BookBuilder:
             blockquote {
                 display: block;
                 margin: 0.5em 1.5em;
-                font-style: italic;
             }
 
             .bilingual-table {
@@ -299,6 +305,10 @@ class BookBuilder:
                 border: 0 none transparent !important;
             }
 
+            .bilingual-left, .bilingual-right {
+                text-indent: 0 !important;
+            }
+
             .bilingual-left *, .bilingual-right * {
                 margin: 0 !important;
                 padding: 0 !important;
@@ -312,6 +322,7 @@ class BookBuilder:
                 max-height: none !important;
                 min-height: 0 !important;
                 box-sizing: content-box !important;
+                text-indent: 0 !important;
             }
 
             .footnote-ref {

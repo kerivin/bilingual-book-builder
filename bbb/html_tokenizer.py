@@ -6,16 +6,15 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from bbb.splitter import Splitter
 from lingua import Language
 
-
-BR_PLACEHOLDER = '__BR__'
-BR_TAG = '<br/>'
+BLOCK_TAGS = {'p', 'div', 'blockquote', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+              'section', 'article', 'header', 'footer'}
 
 
 class HtmlSentenceTokenizer:
     def __init__(self, splitter: Splitter):
         self.splitter = splitter
 
-    def extract(self, html: str, language: Language) -> List[Tuple[str, str]]:
+    def extract(self, html: str, language: Language) -> Tuple[List[Tuple[str, str]], List[int]]:
         soup = BeautifulSoup(html, 'html.parser')
         self._remove_blacklisted(soup)
 
@@ -25,55 +24,62 @@ class HtmlSentenceTokenizer:
                 and soup.contents[0].name == '[document]'):
             root = soup.contents[0]
 
-        self._replace_br_with_placeholder(root)
+        body = root.body if hasattr(root, 'body') and root.body else root
 
-        full_text = root.get_text()
-        norm_text, norm_to_raw = self._normalize_and_map(full_text)
+        flat_sentences = []
+        block_lengths = []
 
-        if not norm_text.strip():
-            return []
+        for block_elem in body.find_all(BLOCK_TAGS, recursive=False):
+            block_text = block_elem.get_text()
+            norm_text, norm_to_raw = self._normalize_and_map(block_text)
 
-        paragraph_groups = self.splitter.run(norm_text, language)
-        if not paragraph_groups or not paragraph_groups[0]:
-            return [(norm_text.strip(), str(root))]
+            if not norm_text.strip():
+                continue
 
-        all_sents = [s for para in paragraph_groups for s in para if s.strip()]
-        if not all_sents:
-            return [(norm_text.strip(), str(root))]
+            paragraphs = self.splitter.run(norm_text, language)
+            block_sentences = []
 
-        results = []
-        last_pos = 0
-        for sent in all_sents:
-            pos = norm_text.find(sent, last_pos)
-            if pos == -1:
-                stripped = re.sub(r'\s+', ' ', sent).strip()
-                pos = norm_text.find(stripped, last_pos)
-            if pos == -1:
-                pattern = re.escape(sent)
-                pattern = re.sub(r'\\ ', r'\\s+', pattern)
-                match = re.search(pattern, norm_text[last_pos:])
-                if match:
-                    pos = last_pos + match.start()
-                else:
-                    continue
-            end = pos + len(sent)
-            last_pos = end
+            for para_sents in paragraphs:
+                for sent in para_sents:
+                    s = sent.strip()
+                    if not s:
+                        continue
 
-            raw_start = norm_to_raw[pos] if pos < len(norm_to_raw) else 0
-            raw_end = norm_to_raw[end] if end < len(norm_to_raw) else len(full_text)
-            fragment = self._extract_fragment(root, raw_start, raw_end)
-            fragment = fragment.replace(BR_PLACEHOLDER, BR_TAG)
-            results.append((sent, fragment))
+                    pos = norm_text.find(s)
+                    if pos == -1:
+                        stripped = re.sub(r'\s+', ' ', s).strip()
+                        pos = norm_text.find(stripped)
+                    if pos == -1:
+                        pattern = re.escape(s)
+                        pattern = re.sub(r'\\ ', r'\\s+', pattern)
+                        match = re.search(pattern, norm_text)
+                        if match:
+                            pos = match.start()
+                        else:
+                            continue
 
-        return results
+                    end = pos + len(s)
+                    raw_start = norm_to_raw[pos] if pos < len(norm_to_raw) else 0
+                    raw_end = norm_to_raw[end] if end < len(norm_to_raw) else len(block_text)
+
+                    inner_fragment = self._extract_fragment(block_elem, raw_start, raw_end)
+
+                    wrapper = BeautifulSoup('', 'html.parser').new_tag(
+                        block_elem.name,
+                        attrs=dict(block_elem.attrs) if block_elem.attrs else None
+                    )
+                    wrapper.append(BeautifulSoup(inner_fragment, 'html.parser'))
+                    block_sentences.append((s, str(wrapper)))
+
+            if block_sentences:
+                flat_sentences.extend(block_sentences)
+                block_lengths.append(len(block_sentences))
+
+        return flat_sentences, block_lengths
 
     def _remove_blacklisted(self, soup: BeautifulSoup) -> None:
         for tag in soup(['script', 'style', 'img', 'figure', 'svg', 'canvas']):
             tag.decompose()
-
-    def _replace_br_with_placeholder(self, root: Tag) -> None:
-        for br in root.find_all('br'):
-            br.replace_with(NavigableString(BR_PLACEHOLDER))
 
     def _normalize_and_map(self, raw_text: str) -> Tuple[str, List[int]]:
         norm_parts = []
@@ -82,12 +88,6 @@ class HtmlSentenceTokenizer:
         n_raw = len(raw_text)
 
         while i_raw < n_raw:
-            if raw_text[i_raw:i_raw + len(BR_PLACEHOLDER)] == BR_PLACEHOLDER:
-                norm_parts.append('\n')
-                norm_to_raw.append(i_raw)
-                i_raw += len(BR_PLACEHOLDER)
-                continue
-
             if raw_text[i_raw] == '\n':
                 norm_parts.append('\n')
                 norm_to_raw.append(i_raw)
