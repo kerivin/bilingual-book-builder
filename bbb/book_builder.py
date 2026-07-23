@@ -177,62 +177,46 @@ class BookBuilder:
         )
         return f'<hr class="footnote-separator"/><div class="footnotes"><ol>{items}</ol></div>'
 
-    def _set_text_indent(self, html: str, indent: str) -> str:
-        soup = BeautifulSoup(f'<root>{html}</root>', 'html.parser')
-        root = soup.root
-
-        target = None
-        for elem in root.descendants:
-            if elem is None or not isinstance(elem, Tag):
-                continue
-            if elem.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
-                break
-            if elem.name == 'p' or 'paragraph' in elem.get('class', []):
-                target = elem
-                break
-
-        if target is None:
-            for elem in root.descendants:
-                if elem is None or not isinstance(elem, Tag):
-                    continue
-                if elem.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
-                    break
-                if elem.name in ('div', 'p', 'blockquote', 'section'):
-                    target = elem
-                    break
-
-        if target is not None:
-            target['style'] = f"text-indent: {indent} !important;"
-
-        return ''.join(str(c) for c in root.contents)
-
-    def _apply_indent_to_first_block(self, html_str: str) -> str:
+    def _apply_indent_to_block(self, html_str: str) -> str:
         soup = BeautifulSoup(html_str, 'html.parser')
         if soup.contents:
             first_tag = soup.contents[0] if isinstance(soup.contents[0], Tag) else soup.find()
             if first_tag and hasattr(first_tag, 'attrs'):
                 current_style = first_tag.get('style', '')
-                new_style = (current_style + '; ' if current_style else '') + 'text-indent: 2em !important'
+                parts = [s for s in current_style.split(';') if 'text-indent' not in s]
+                clean_style = ';'.join(parts).strip().rstrip(';')
+                new_style = (clean_style + '; ' if clean_style else '') + 'text-indent: 2em !important'
                 first_tag['style'] = new_style
         return str(soup) if soup else html_str
 
-    def _build_two_column_html(self, aligned_paras):
+    def _build_two_column_html(self, aligned_rows):
         rows = []
-        for para in aligned_paras:
-            for i, seg in enumerate(para):
-                src_html = seg.get('source_html', '')
-                tgt_html = seg.get('target_html', '')
+        for row in aligned_rows:
+            src_sents = row.get('source_sents', [])
+            tgt_sents = row.get('target_sents', [])
 
-                if i == 0:
-                    src_html = self._apply_indent_to_first_block(src_html)
-                    tgt_html = self._apply_indent_to_first_block(tgt_html)
+            src_parts = []
+            for s in src_sents:
+                html = s['html']
+                if s.get('first'):
+                    html = self._apply_indent_to_block(html)
+                src_parts.append(html)
+            src_html = '\n'.join(src_parts)
 
-                rows.append(
-                    f'<tr>'
-                    f'<td class="bilingual-left">{src_html}</td>'
-                    f'<td class="bilingual-right">{tgt_html}</td>'
-                    f'</tr>'
-                )
+            tgt_parts = []
+            for t in tgt_sents:
+                html = t['html']
+                if t.get('first'):
+                    html = self._apply_indent_to_block(html)
+                tgt_parts.append(html)
+            tgt_html = '\n'.join(tgt_parts)
+
+            rows.append(
+                f'<tr>'
+                f'<td class="bilingual-left">{src_html}</td>'
+                f'<td class="bilingual-right">{tgt_html}</td>'
+                f'</tr>'
+            )
         return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
 
     def run(self) -> epub.EpubBook | None:

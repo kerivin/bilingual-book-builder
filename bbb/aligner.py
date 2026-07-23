@@ -1,3 +1,4 @@
+# aligner.py
 import re
 import numpy as np
 from typing import List, Dict, Any, Tuple
@@ -48,9 +49,10 @@ class Aligner:
         except Exception:
             return None
 
-    def _align_pair(self, src_html: str, tgt_html: str, src_lang, tgt_lang) -> List[List[Dict[str, str]]]:
+    def _align_pair(self, src_html: str, tgt_html: str, src_lang, tgt_lang) -> List[Dict[str, Any]]:
         if not src_html.strip() or not tgt_html.strip():
-            return [[{'source_html': src_html, 'target_html': tgt_html}]]
+            return [{'source_sents': [{'html': src_html, 'first': True}],
+                     'target_sents': [{'html': tgt_html, 'first': True}]}]
 
         lang_src = self._detect_language(BeautifulSoup(src_html, 'html.parser').get_text(), src_lang)
         lang_tgt = self._detect_language(BeautifulSoup(tgt_html, 'html.parser').get_text(), tgt_lang)
@@ -61,17 +63,22 @@ class Aligner:
         tgt_sents, tgt_block_lengths = extractor.extract(tgt_html, lang_tgt)
 
         if not src_sents or not tgt_sents:
-            return [[{'source_html': src_html, 'target_html': tgt_html}]]
+            return [{'source_sents': [{'html': src_html, 'first': True}],
+                     'target_sents': [{'html': tgt_html, 'first': True}]}]
 
         src_plain = [s[0] for s in src_sents]
         tgt_plain = [s[0] for s in tgt_sents]
 
-        # paragraph starts from block boundaries
-        src_para_starts = [0]
+        src_para_starts = set()
         acc = 0
-        for blen in src_block_lengths[:-1]:
+        for blen in src_block_lengths:
+            src_para_starts.add(acc)
             acc += blen
-            src_para_starts.append(acc)
+        tgt_para_starts = set()
+        acc = 0
+        for blen in tgt_block_lengths:
+            tgt_para_starts.add(acc)
+            acc += blen
 
         try:
             bert = Bertalign(
@@ -87,30 +94,36 @@ class Aligner:
             raw_pairs = [([i] if i < len(src_plain) else [], [i] if i < len(tgt_plain) else [])
                          for i in range(max_len)]
 
-        paragraphs = []
-        current_para = []
-        para_idx = 0
+        rows = []
         for s_list, t_list in raw_pairs:
             if not s_list or not t_list:
                 continue
 
-            src_html_combined = '\n'.join(src_sents[i][1] for i in s_list if i < len(src_sents))
-            tgt_html_combined = '\n'.join(tgt_sents[i][1] for i in t_list if i < len(tgt_sents))
+            src_sent_blocks = []
+            for i in sorted(s_list):
+                if i < len(src_sents):
+                    src_sent_blocks.append({
+                        'html': src_sents[i][1],
+                        'first': i in src_para_starts
+                    })
 
-            if para_idx < len(src_para_starts) and any(idx >= src_para_starts[para_idx] for idx in s_list):
-                if current_para:
-                    paragraphs.append(current_para)
-                    current_para = []
-                para_idx += 1
+            tgt_sent_blocks = []
+            for i in sorted(t_list):
+                if i < len(tgt_sents):
+                    tgt_sent_blocks.append({
+                        'html': tgt_sents[i][1],
+                        'first': i in tgt_para_starts
+                    })
 
-            current_para.append({'source_html': src_html_combined, 'target_html': tgt_html_combined})
+            rows.append({
+                'source_sents': src_sent_blocks,
+                'target_sents': tgt_sent_blocks
+            })
 
-        if current_para:
-            paragraphs.append(current_para)
-
-        if not paragraphs:
-            paragraphs = [[{'source_html': src_html, 'target_html': tgt_html}]]
-        return paragraphs
+        if not rows:
+            rows = [{'source_sents': [{'html': src_html, 'first': True}],
+                     'target_sents': [{'html': tgt_html, 'first': True}]}]
+        return rows
 
     def run(self) -> List[Dict[str, Any]]:
         output = []
@@ -157,7 +170,7 @@ class Aligner:
                         alignment = future.result()
                     except Exception as e:
                         self.log.error(f"Error aligning chapter pair {idx}: {e}")
-                        alignment = [[{'source_html': '', 'target_html': ''}]]
+                        alignment = [{'source_html': '', 'target_html': '', 'source_first': False, 'target_first': False}]
                     output[idx]['alignment'] = alignment
                     progress.update('aligning')
 
