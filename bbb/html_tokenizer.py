@@ -11,8 +11,6 @@ BR_TAG = '<br/>'
 BLOCK_TAGS = {'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'li',
               'section', 'article', 'header', 'footer', 'aside', 'main'}
 HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
-# Common classes for chapter numbers, titles, etc. - won't be indented
-HEADING_CLASSES = {'cn', 'chapter', 'chapter-number', 'chapter-title', 'title', 'heading', 'header', 'subtitle'}
 
 
 class HtmlSentenceTokenizer:
@@ -83,21 +81,11 @@ class HtmlSentenceTokenizer:
                             block_sents.append(s)
                             line_has_sents = True
                 # Mark first sentence of this line as paragraph start
-                # but NOT for headings - let original CSS handle them
+                # Only for <p> tags - other block elements are containers, not paragraphs
                 if line_has_sents:
                     block_tag_name = block.name if hasattr(block, 'name') else None
-                    # Don't indent heading tags or elements with heading classes
-                    is_heading = block_tag_name in HEADING_TAGS
-                    if not is_heading:
-                        # Check for heading classes
-                        classes = block.get('class', [])
-                        if isinstance(classes, list):
-                            classes = set(classes)
-                        else:
-                            classes = set(classes.split()) if classes else set()
-                        is_heading = bool(classes & HEADING_CLASSES)
-                    
-                    if not is_heading:
+                    # Only mark <p> tags for indentation
+                    if block_tag_name == 'p':
                         paragraph_starts.add(block_start_idx + line_sent_start)
 
             if not block_sents:
