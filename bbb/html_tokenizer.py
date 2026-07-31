@@ -8,7 +8,8 @@ from lingua import Language
 BR_PLACEHOLDER = '__BR__'
 BR_TAG = '<br/>'
 
-BLOCK_TAGS = {'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'li'}
+BLOCK_TAGS = {'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'li',
+              'section', 'article', 'header', 'footer', 'aside', 'main'}
 HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 # Common classes for chapter numbers, titles, etc. - won't be indented
 HEADING_CLASSES = {'cn', 'chapter', 'chapter-number', 'chapter-title', 'title', 'heading', 'header', 'subtitle'}
@@ -30,12 +31,24 @@ class HtmlSentenceTokenizer:
 
         self._replace_br_with_placeholder(root)
 
-        # Only get direct block children (non-recursive) to preserve paragraph structure
+        # Find all block elements in the document
         body = root.body if hasattr(root, 'body') and root.body else root
-        block_elements = [elem for elem in body.find_all(BLOCK_TAGS, recursive=False)
-                         if isinstance(elem, Tag)]
-
-        # If no direct block children, use root itself
+        all_blocks = body.find_all(BLOCK_TAGS) if isinstance(body, Tag) else []
+        
+        # Filter to only the deepest blocks (those that don't contain other block elements as direct children)
+        block_elements = []
+        for block in all_blocks:
+            if isinstance(block, Tag):
+                # Check if this block has any direct children that are block elements
+                has_block_children = any(
+                    child.name in BLOCK_TAGS 
+                    for child in block.children 
+                    if isinstance(child, Tag)
+                )
+                if not has_block_children:
+                    block_elements.append(block)
+        
+        # If no block elements found, use root itself
         if not block_elements:
             block_elements = [root] if isinstance(root, Tag) else [soup]
 
@@ -164,9 +177,12 @@ class HtmlSentenceTokenizer:
         return ''.join(norm_parts), norm_to_raw
 
     def _extract_fragment(self, root: Tag, start: int, end: int) -> str:
-        wrapper = BeautifulSoup('', 'html.parser').new_tag('div')
-        self._collect_fragment(root, wrapper, 0, start, end)
-        return wrapper.decode_contents()
+        # Create a copy of the root tag to preserve its attributes
+        root_copy = BeautifulSoup('', 'html.parser').new_tag(
+            root.name, attrs=dict(root.attrs) if root.attrs else None
+        )
+        self._collect_fragment(root, root_copy, 0, start, end)
+        return str(root_copy)
 
     def _collect_fragment(self, src_node, dest_parent, current_pos, start, end) -> int:
         if isinstance(src_node, NavigableString):

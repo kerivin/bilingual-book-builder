@@ -224,7 +224,10 @@ class BookBuilder:
             clean_style = ';'.join(parts).strip().rstrip(';')
             new_style = (clean_style + '; ' if clean_style else '') + 'text-indent: 2em !important'
             first_tag['style'] = new_style
-        return str(soup) if soup else html_str
+            return str(soup) if soup else html_str
+        else:
+            # No tags found or first content is text node, wrap entire content in span
+            return f'<span style="text-indent: 2em !important">{html_str}</span>'
 
     def _build_two_column_html(self, aligned_rows):
         rows = []
