@@ -50,7 +50,41 @@ class BookBuilder:
             new_book.set_cover(cover_item.file_name, cover_item.get_content())
 
     def _copy_styles(self, new_book: epub.EpubBook) -> List[str]:
-        return []
+        css_links = []
+        base_dir = self._get_base_dir()
+        
+        # Copy styles from source book
+        for item in self.source_book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+            if item.file_name.endswith('.css'):
+                new_item = epub.EpubItem(
+                    uid=f"src_css_{item.file_name}",
+                    file_name=item.file_name,
+                    media_type='text/css',
+                    content=item.get_content()
+                )
+                new_book.add_item(new_item)
+                css_links.append(new_item.file_name)
+        
+        # Copy styles from target book (avoid duplicates)
+        target_css_files = set()
+        for item in self.target_book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+            if item.file_name.endswith('.css'):
+                target_css_files.add(item.file_name)
+        
+        for css_file in target_css_files:
+            if css_file not in css_links:
+                item = self.target_book.get_item_with_href(css_file)
+                if item:
+                    new_item = epub.EpubItem(
+                        uid=f"tgt_css_{css_file}",
+                        file_name=css_file,
+                        media_type='text/css',
+                        content=item.get_content()
+                    )
+                    new_book.add_item(new_item)
+                    css_links.append(new_item.file_name)
+        
+        return css_links
 
     def _copy_metadata(self, new_book: epub.EpubBook):
         def get_metadata(book, key):
@@ -179,15 +213,21 @@ class BookBuilder:
 
     def _apply_indent_to_block(self, html_str: str) -> str:
         soup = BeautifulSoup(html_str, 'html.parser')
-        if soup.contents:
-            first_tag = soup.contents[0] if isinstance(soup.contents[0], Tag) else soup.find()
-            if first_tag and hasattr(first_tag, 'attrs'):
-                current_style = first_tag.get('style', '')
-                parts = [s for s in current_style.split(';') if 'text-indent' not in s]
-                clean_style = ';'.join(parts).strip().rstrip(';')
-                new_style = (clean_style + '; ' if clean_style else '') + 'text-indent: 2em !important'
-                first_tag['style'] = new_style
-        return str(soup) if soup else html_str
+        if not soup.contents:
+            # Handle plain text by wrapping in span
+            return f'<span style="text-indent: 2em !important">{html_str}</span>'
+        
+        first_tag = soup.contents[0] if isinstance(soup.contents[0], Tag) else soup.find()
+        if first_tag and hasattr(first_tag, 'attrs'):
+            current_style = first_tag.get('style', '')
+            parts = [s for s in current_style.split(';') if 'text-indent' not in s]
+            clean_style = ';'.join(parts).strip().rstrip(';')
+            new_style = (clean_style + '; ' if clean_style else '') + 'text-indent: 2em !important'
+            first_tag['style'] = new_style
+            return str(soup) if soup else html_str
+        else:
+            # No tags found or first content is text node, wrap entire content in span
+            return f'<span style="text-indent: 2em !important">{html_str}</span>'
 
     def _build_two_column_html(self, aligned_rows):
         rows = []
@@ -290,12 +330,12 @@ class BookBuilder:
             }
 
             .bilingual-left, .bilingual-right {
-                text-indent: 0 !important;
             }
 
             .bilingual-left *, .bilingual-right * {
                 margin: 0 !important;
                 padding: 0 !important;
+                text-indent: 0 !important;
                 float: none !important;
                 clear: none !important;
                 position: static !important;
@@ -306,7 +346,6 @@ class BookBuilder:
                 max-height: none !important;
                 min-height: 0 !important;
                 box-sizing: content-box !important;
-                text-indent: 0 !important;
             }
 
             .footnote-ref {

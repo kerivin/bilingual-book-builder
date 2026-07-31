@@ -218,4 +218,5 @@ __marimo__/
 .streamlit/secrets.toml
 
 *.epub
-*.sdr/
+*.sdr
+tmp
