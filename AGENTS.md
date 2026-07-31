@@ -3,20 +3,20 @@ This is a project that creates a parallel text with sentences aligned side-by-si
 
 Requirements:
 
-1. Robust code with no special handling of custom classes. The code should work with as many epubs as possible as long as epub is valid.
-2. Splitter and aligner should work with natural language, because I use state-of-the-art algorithms I don't want to modify.
-3. Sentences split by newlines in the original files should be pre-split before external splitter run because they are effectively different sentences.
-4. First sentence of each logical paragraph (logical as in not <p> but the way it's rendered as a reading paragraph) should have indentation. Even if this sentence is first, last, or middle row in the result table.
-5. I apply aggressive CSS reset to make the result book look unified and to avoid table-breaking markup.
-6. I don't want to process chapter body in a special way, the HTML/CSS markup from the original files should handle the tags I need (headings/talics/etc) so that chapter looks correct (as in close to what it looked like in the original file), and I only set the looks of some tags in my CSS. So don't extract chapter titles from chapter body or anything like this.
-7. Unmatched sentences should be displayed. If only one side has unmatched sentences, it should occupy it's row as a regular matched sentence but with one of the columns being empty. If both side have unmatched sentences, they should also be displayed, but you can put them in one row. The order of unmatched sentences should be reading order from original files.
-8. It's indented to have multiple sentences in a single row if they are aligned to one sentence in another language column that also occupies a row.
-9. Try not to duplicate code.
-10. Try to make code as abstract/basic as possible, as in avoiding too specific details that might work with some books but can break with other books. Avoid book-specific code.
-11. Alignment should work at sentence level, always. Don't try to align entire paragraphs. It MUST be parallel text with sentences aligned side-by-side.
-12. If you know an existing solution for some problem, you can suggest it.
-13. Try to simplify code when it's possible to keep the correct logic.
-14. Before submitting changes, make sure they meet the current requirements.
+- Robust code with no special handling of custom classes. The code should work with as many epubs as possible as long as epub is valid.
+- Splitter and aligner should work with natural language, because I use state-of-the-art algorithms I don't want to modify.
+- Sentences split by newlines in the original files should be pre-split before external splitter run because they are effectively different sentences.
+- First sentence of each logical paragraph (logical as in not <p> but the way it's rendered as a reading paragraph) should have indentation. Even if this sentence is first, last, or middle row in the result table.
+- I apply aggressive CSS reset to make the result book look unified and to avoid table-breaking markup.
+- I don't want to process chapter body in a special way, the HTML/CSS markup from the original files should handle the tags I need (headings/talics/etc) so that chapter looks correct (as in close to what it looked like in the original file), and I only set the looks of some tags in my CSS. So don't extract chapter titles from chapter body or anything like this.
+- Unmatched sentences should be displayed. If only one side has unmatched sentences, it should occupy it's row as a regular matched sentence but with one of the columns being empty. If both side have unmatched sentences, they should also be displayed, but you can put them in one row. The order of unmatched sentences should be reading order from original files.
+- It's indented to have multiple sentences in a single row if they are aligned to one sentence in another language column that also occupies a row.
+- Try not to duplicate code.
+- Try to make code as abstract/basic as possible, as in avoiding too specific details that might work with some books but can break with other books. Avoid book-specific code.
+- Alignment should work at sentence level, always. Don't try to align entire paragraphs. It MUST be parallel text with sentences aligned side-by-side.
+- If you know an existing solution for some problem, you can suggest it.
+- Try to simplify code when it's possible to keep the correct logic.
+- Before submitting changes, make sure they meet the current requirements.
 
 
 For testing changes you have two options:
