@@ -335,6 +335,7 @@ class BookBuilder:
             .bilingual-left *, .bilingual-right * {
                 margin: 0 !important;
                 padding: 0 !important;
+                text-indent: 0 !important;
                 float: none !important;
                 clear: none !important;
                 position: static !important;

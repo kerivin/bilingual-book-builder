@@ -21,15 +21,19 @@ Requirements:
 
 For testing changes you have two options:
 
-1. Run `bbb` or `python -m bbb` with the arguments from `cli.py` locally. You can either create temporary short epub files and use auto-match option, or use existing epub files with interactive mode, choosing just a few chapters for testing. Testing chapters shouldn't take more than 2 minutes, so try to reduce the load. The result of the app would be `bilingual.epub` file in the root directory of the project that you should unzip and parse.
-2. Or add a new test to existing files in the tests/ directory or create a new file, then recreate the file structure that you want to test.
+1. Run `bbb` (installed console script; see Gotchas on why not `python -m bbb`) with the arguments from `cli.py` locally. You can either create temporary short epub files and use auto-match option, or use existing epub files (ask user where to find them and get access to that directory) with interactive mode, choosing just a few chapters for testing. Testing chapters shouldn't take more than 2 minutes, so try to reduce the load. `--only extract` / `--only auto-match` show chapters / chapter matching without building the EPUB. The result of the app would be `bilingual.epub` file in the root directory of the project that you should unzip and parse.
+2. Or add a new test to existing files in the tests/ directory or create a new file, then recreate the file structure that you want to test. Tests build EPUB fixtures in-memory via helpers in `tests/conftest.py` (`make_epub_bytes`, `create_chapter_html`) and mock the heavy ML deps (SentenceTransformer, SaT, Bertalign) with the `mock_heavy_deps` fixture in `tests/test_integration.py`; use pyfakefs for file I/O.
 
 ## Quick reference
 
 - **Python version:** 3.14 (`.python-version`), project requires `>=3.13` (`pyproject.toml`).
-- **Setup:** clone with `--recurse-submodules` (bertalign is a submodule), create venv, `pip install -r requirements.txt`.
-- **Run tests:** `source .venv/bin/activate && pytest tests/ -v`
+- **Setup:** clone with `--recurse-submodules` (bertalign is a submodule), create venv, `pip install -r requirements.txt`. Test everything only inside venv. First real run downloads models (LaBSE, sat-3l).
+- **Run tests:** `source .venv/bin/activate && cd /tmp && pytest /path/to/bilingual-book-builder/tests/ -v` (must be run from a cwd *outside* the repo root, see Gotchas).
 - **No linter/formatter configured** – follow existing code style.
 - **Entry point:** `bbb/cli.py` → `BBB` class orchestrates: extract → map → align → build EPUB.
-- **Key files:** `bbb/aligner.py` (bertalign), `bbb/splitter.py` (wtpsplit/sentence-splitter), `bbb/book_builder.py` (EPUB generation with HTML preservation).
-- **Output:** `bilingual.epub` in project root.
+- **Key files:** `bbb/aligner.py` (bertalign), `bbb/splitter.py` (wtpsplit/sentence-splitter), `bbb/html_tokenizer.py` (HTML → sentences with paragraph-start tracking, HTML-fragment preservation), `bbb/book_builder.py` (EPUB generation with HTML preservation).
+- **Output:** `bilingual.epub` in project root (plus a Calibre `bilingual.sdr` sidecar; both gitignored).
+
+## Gotchas
+
+- **Do NOT run `pytest` or `python -m bbb` from the repo root.** The checked-out `bertalign/` submodule dir has no top-level `__init__.py`, so when the repo root is on `sys.path` (i.e. cwd == repo root) Python resolves it as a namespace package that shadows the installed editable `bertalign` package → `ImportError: cannot import name 'Bertalign' from 'bertalign' (unknown location)`. Run tests from any other directory (e.g. `cd /tmp`). The installed `bbb` console script works from anywhere.

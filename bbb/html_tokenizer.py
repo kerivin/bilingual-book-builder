@@ -61,7 +61,7 @@ class HtmlSentenceTokenizer:
                 continue
 
             block_start_idx = len(all_sents)
-            # Split by newlines to handle verses/poems
+            # Split by newlines to pre-split sentences separated by line breaks
             lines = norm_text.split('\n')
             block_sents = []
 
@@ -69,27 +69,21 @@ class HtmlSentenceTokenizer:
                 line = line.strip()
                 if not line:
                     continue
-                # Track where this line's sentences start within block_sents
-                line_sent_start = len(block_sents)
-                # Split this line into sentences
                 line_groups = self.splitter.run(line, language)
-                line_has_sents = False
                 for group in line_groups:
                     for sent in group:
                         s = sent.strip()
                         if s:
                             block_sents.append(s)
-                            line_has_sents = True
-                # Mark first sentence of this line as paragraph start
-                # Only for <p> tags - other block elements are containers, not paragraphs
-                if line_has_sents:
-                    block_tag_name = block.name if hasattr(block, 'name') else None
-                    # Only mark <p> tags for indentation
-                    if block_tag_name == 'p':
-                        paragraph_starts.add(block_start_idx + line_sent_start)
 
             if not block_sents:
                 continue
+
+            # Only the first sentence of a block is a paragraph start;
+            # newline-separated sentences belong to the same paragraph.
+            block_tag_name = block.name if hasattr(block, 'name') else None
+            if block_tag_name not in HEADING_TAGS:
+                paragraph_starts.add(block_start_idx)
 
             # Extract HTML fragments for each sentence
             last_pos = 0

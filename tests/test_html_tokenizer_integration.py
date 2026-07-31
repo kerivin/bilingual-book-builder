@@ -115,14 +115,29 @@ def test_br_tag_splitting(tokenizer):
     <p>First line.<br/>Second line.<br/>Third line.</p>
     """
     sents, para_starts = tokenizer.extract(html, None)
-    
+
     # Should have 3 sentences (one per line)
     assert len(sents) == 3
-    
-    # Each line should be indented
+
+    # One <p> is a single paragraph: only the first sentence is a paragraph start
     assert 0 in para_starts
-    assert 1 in para_starts
-    assert 2 in para_starts
+    assert 1 not in para_starts
+    assert 2 not in para_starts
+
+
+def test_multiline_paragraph_only_first_sentence_indented(tokenizer):
+    """Test that a paragraph spanning multiple lines only indents its first sentence."""
+    html = """
+    <p>First sentence.
+    Second sentence.
+    Third sentence.</p>
+    """
+    sents, para_starts = tokenizer.extract(html, None)
+
+    assert len(sents) == 3
+    assert 0 in para_starts
+    assert 1 not in para_starts
+    assert 2 not in para_starts
 
 
 def test_empty_lines_skipped(tokenizer):
