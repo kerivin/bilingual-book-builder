@@ -59,8 +59,8 @@ class Aligner:
 
         extractor = HtmlSentenceTokenizer(self.splitter)
 
-        src_sents, src_block_lengths = extractor.extract(src_html, lang_src)
-        tgt_sents, tgt_block_lengths = extractor.extract(tgt_html, lang_tgt)
+        src_sents, src_para_starts = extractor.extract(src_html, lang_src)
+        tgt_sents, tgt_para_starts = extractor.extract(tgt_html, lang_tgt)
 
         if not src_sents or not tgt_sents:
             return [{'source_sents': [{'html': src_html, 'first': True}],
@@ -68,17 +68,6 @@ class Aligner:
 
         src_plain = [s[0] for s in src_sents]
         tgt_plain = [s[0] for s in tgt_sents]
-
-        src_para_starts = set()
-        acc = 0
-        for blen in src_block_lengths:
-            src_para_starts.add(acc)
-            acc += blen
-        tgt_para_starts = set()
-        acc = 0
-        for blen in tgt_block_lengths:
-            tgt_para_starts.add(acc)
-            acc += blen
 
         try:
             bert = Bertalign(
@@ -94,31 +83,88 @@ class Aligner:
             raw_pairs = [([i] if i < len(src_plain) else [], [i] if i < len(tgt_plain) else [])
                          for i in range(max_len)]
 
-        rows = []
+        # Build rows from aligned pairs, tracking which sentence indices are used
+        # Each element: (src_indices, tgt_indices, src_htmls, tgt_htmls)
+        aligned_rows = []
+        used_src_indices = set()
+        used_tgt_indices = set()
+        
         for s_list, t_list in raw_pairs:
-            if not s_list or not t_list:
-                continue
-
-            src_sent_blocks = []
-            for i in sorted(s_list):
-                if i < len(src_sents):
-                    src_sent_blocks.append({
+            src_indices = sorted([i for i in s_list if i < len(src_sents)])
+            tgt_indices = sorted([i for i in t_list if i < len(tgt_sents)])
+            
+            if src_indices or tgt_indices:
+                aligned_rows.append({
+                    'src_indices': src_indices,
+                    'tgt_indices': tgt_indices
+                })
+                used_src_indices.update(src_indices)
+                used_tgt_indices.update(tgt_indices)
+        
+        # Find unmatched sentences
+        unmatched_src = sorted(set(range(len(src_sents))) - used_src_indices)
+        unmatched_tgt = sorted(set(range(len(tgt_sents))) - used_tgt_indices)
+        
+        # Merge unmatched sentences into the aligned rows
+        # Group consecutive unmatched sentences and insert them at the right position
+        final_rows = []
+        unmatched_src_ptr = 0
+        unmatched_tgt_ptr = 0
+        
+        for row in aligned_rows:
+            # Add any unmatched source sentences that come before this aligned row
+            src_before = []
+            while unmatched_src_ptr < len(unmatched_src) and unmatched_src[unmatched_src_ptr] < row['src_indices'][0]:
+                src_before.append(unmatched_src[unmatched_src_ptr])
+                unmatched_src_ptr += 1
+            
+            # Add any unmatched target sentences that come before this aligned row
+            tgt_before = []
+            while unmatched_tgt_ptr < len(unmatched_tgt) and unmatched_tgt[unmatched_tgt_ptr] < row['tgt_indices'][0]:
+                tgt_before.append(unmatched_tgt[unmatched_tgt_ptr])
+                unmatched_tgt_ptr += 1
+            
+            # If there are unmatched sentences before this row, add them as a combined row
+            if src_before or tgt_before:
+                final_rows.append({
+                    'source_sents': [{
                         'html': src_sents[i][1],
                         'first': i in src_para_starts
-                    })
-
-            tgt_sent_blocks = []
-            for i in sorted(t_list):
-                if i < len(tgt_sents):
-                    tgt_sent_blocks.append({
+                    } for i in src_before],
+                    'target_sents': [{
                         'html': tgt_sents[i][1],
                         'first': i in tgt_para_starts
-                    })
-
-            rows.append({
-                'source_sents': src_sent_blocks,
-                'target_sents': tgt_sent_blocks
+                    } for i in tgt_before]
+                })
+            
+            # Add the aligned row
+            final_rows.append({
+                'source_sents': [{
+                    'html': src_sents[i][1],
+                    'first': i in src_para_starts
+                } for i in row['src_indices']],
+                'target_sents': [{
+                    'html': tgt_sents[i][1],
+                    'first': i in tgt_para_starts
+                } for i in row['tgt_indices']]
             })
+        
+        # Add remaining unmatched sentences at the end
+        remaining_src = unmatched_src[unmatched_src_ptr:]
+        remaining_tgt = unmatched_tgt[unmatched_tgt_ptr:]
+        if remaining_src or remaining_tgt:
+            final_rows.append({
+                'source_sents': [{
+                    'html': src_sents[i][1],
+                    'first': i in src_para_starts
+                } for i in remaining_src],
+                'target_sents': [{
+                    'html': tgt_sents[i][1],
+                    'first': i in tgt_para_starts
+                } for i in remaining_tgt]
+            })
+        
+        rows = final_rows
 
         if not rows:
             rows = [{'source_sents': [{'html': src_html, 'first': True}],

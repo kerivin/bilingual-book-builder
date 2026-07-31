@@ -1,20 +1,24 @@
 import re
-from typing import List, Tuple
-
+from typing import List, Tuple, Set
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 from bbb.splitter import Splitter
 from lingua import Language
 
-BLOCK_TAGS = {'p', 'div', 'blockquote', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-              'section', 'article', 'header', 'footer'}
+BR_PLACEHOLDER = '__BR__'
+BR_TAG = '<br/>'
+
+BLOCK_TAGS = {'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'li'}
+HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+# Common classes for chapter numbers, titles, etc. - won't be indented
+HEADING_CLASSES = {'cn', 'chapter', 'chapter-number', 'chapter-title', 'title', 'heading', 'header', 'subtitle'}
 
 
 class HtmlSentenceTokenizer:
     def __init__(self, splitter: Splitter):
         self.splitter = splitter
 
-    def extract(self, html: str, language: Language) -> Tuple[List[Tuple[str, str]], List[int]]:
+    def extract(self, html: str, language: Language) -> Tuple[List[Tuple[str, str]], Set[int]]:
         soup = BeautifulSoup(html, 'html.parser')
         self._remove_blacklisted(soup)
 
@@ -24,97 +28,106 @@ class HtmlSentenceTokenizer:
                 and soup.contents[0].name == '[document]'):
             root = soup.contents[0]
 
+        self._replace_br_with_placeholder(root)
+
+        # Only get direct block children (non-recursive) to preserve paragraph structure
         body = root.body if hasattr(root, 'body') and root.body else root
+        block_elements = [elem for elem in body.find_all(BLOCK_TAGS, recursive=False)
+                         if isinstance(elem, Tag)]
 
-        # break blocks that contain <br> into separate blocks per line
-        for block_elem in body.find_all(BLOCK_TAGS):
-            if block_elem.find('br'):
-                self._split_block_at_br(block_elem)
+        # If no direct block children, use root itself
+        if not block_elements:
+            block_elements = [root] if isinstance(root, Tag) else [soup]
 
-        flat_sentences = []
-        block_lengths = []
+        all_sents = []
+        paragraph_starts = set()
 
-        for block_elem in body.find_all(BLOCK_TAGS, recursive=False):
-            block_text = block_elem.get_text()
+        for block in block_elements:
+            block_text = block.get_text()
             norm_text, norm_to_raw = self._normalize_and_map(block_text)
 
             if not norm_text.strip():
                 continue
 
-            paragraphs = self.splitter.run(norm_text, language)
-            block_sentences = []
+            block_start_idx = len(all_sents)
+            # Split by newlines to handle verses/poems
+            lines = norm_text.split('\n')
+            block_sents = []
 
-            for para_sents in paragraphs:
-                for sent in para_sents:
-                    s = sent.strip()
-                    if not s:
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                # Track where this line's sentences start within block_sents
+                line_sent_start = len(block_sents)
+                # Split this line into sentences
+                line_groups = self.splitter.run(line, language)
+                line_has_sents = False
+                for group in line_groups:
+                    for sent in group:
+                        s = sent.strip()
+                        if s:
+                            block_sents.append(s)
+                            line_has_sents = True
+                # Mark first sentence of this line as paragraph start
+                # but NOT for headings - let original CSS handle them
+                if line_has_sents:
+                    block_tag_name = block.name if hasattr(block, 'name') else None
+                    # Don't indent heading tags or elements with heading classes
+                    is_heading = block_tag_name in HEADING_TAGS
+                    if not is_heading:
+                        # Check for heading classes
+                        classes = block.get('class', [])
+                        if isinstance(classes, list):
+                            classes = set(classes)
+                        else:
+                            classes = set(classes.split()) if classes else set()
+                        is_heading = bool(classes & HEADING_CLASSES)
+                    
+                    if not is_heading:
+                        paragraph_starts.add(block_start_idx + line_sent_start)
+
+            if not block_sents:
+                continue
+
+            # Extract HTML fragments for each sentence
+            last_pos = 0
+            for sent in block_sents:
+                pos = norm_text.find(sent, last_pos)
+                if pos == -1:
+                    stripped = re.sub(r'\s+', ' ', sent).strip()
+                    pos = norm_text.find(stripped, last_pos)
+                if pos == -1:
+                    pattern = re.escape(sent)
+                    pattern = re.sub(r'\\ ', r'\\s+', pattern)
+                    match = re.search(pattern, norm_text[last_pos:])
+                    if match:
+                        pos = last_pos + match.start()
+                    else:
                         continue
 
-                    pos = norm_text.find(s)
-                    if pos == -1:
-                        stripped = re.sub(r'\s+', ' ', s).strip()
-                        pos = norm_text.find(stripped)
-                    if pos == -1:
-                        pattern = re.escape(s)
-                        pattern = re.sub(r'\\ ', r'\\s+', pattern)
-                        match = re.search(pattern, norm_text)
-                        if match:
-                            pos = match.start()
-                        else:
-                            continue
+                end = pos + len(sent)
+                last_pos = end
 
-                    end = pos + len(s)
-                    raw_start = norm_to_raw[pos] if pos < len(norm_to_raw) else 0
-                    raw_end = norm_to_raw[end] if end < len(norm_to_raw) else len(block_text)
+                raw_start = norm_to_raw[pos] if pos < len(norm_to_raw) else 0
+                raw_end = norm_to_raw[end] if end < len(norm_to_raw) else len(block_text)
+                fragment = self._extract_fragment(block, raw_start, raw_end)
+                fragment = fragment.replace(BR_PLACEHOLDER, BR_TAG)
+                all_sents.append((sent, fragment))
 
-                    inner_fragment = self._extract_fragment(block_elem, raw_start, raw_end)
+        if not all_sents:
+            full_text = root.get_text()
+            return [(full_text.strip(), str(root))], {0}
 
-                    wrapper = BeautifulSoup('', 'html.parser').new_tag(
-                        block_elem.name,
-                        attrs=dict(block_elem.attrs) if block_elem.attrs else None
-                    )
-                    wrapper.append(BeautifulSoup(inner_fragment, 'html.parser'))
-                    block_sentences.append((s, str(wrapper)))
-
-            if block_sentences:
-                flat_sentences.extend(block_sentences)
-                block_lengths.append(len(block_sentences))
-
-        return flat_sentences, block_lengths
-
-    def _split_block_at_br(self, block_elem: Tag) -> None:
-        """Replace a block element containing <br> with separate sibling blocks, one per br-separated segment."""
-        # Collect all children, splitting at <br> into groups
-        segments = []          # list of lists of nodes for each segment
-        current_segment = []
-        for child in block_elem.children:
-            if isinstance(child, Tag) and child.name == 'br':
-                if current_segment:
-                    segments.append(current_segment)
-                    current_segment = []
-            else:
-                current_segment.append(child)
-        if current_segment:
-            segments.append(current_segment)
-
-        if len(segments) <= 1:
-            return   # no <br> or only one segment, nothing to split
-
-        parent = block_elem.parent
-        # Create new blocks for each segment and insert them before the old block
-        for seg_nodes in segments:
-            new_block = BeautifulSoup('', 'html.parser').new_tag(
-                block_elem.name,
-                attrs=dict(block_elem.attrs) if block_elem.attrs else None
-            )
-            for node in seg_nodes:
-                new_block.append(node)
-            block_elem.insert_before(new_block)
-        block_elem.decompose()
+        return all_sents, paragraph_starts
 
     def _remove_blacklisted(self, soup: BeautifulSoup) -> None:
         for tag in soup(['script', 'style', 'img', 'figure', 'svg', 'canvas']):
             tag.decompose()
+
+    def _replace_br_with_placeholder(self, root: Tag) -> None:
+        for br in root.find_all('br'):
+            br.replace_with(NavigableString(BR_PLACEHOLDER))
 
     def _normalize_and_map(self, raw_text: str) -> Tuple[str, List[int]]:
         norm_parts = []
@@ -123,6 +136,12 @@ class HtmlSentenceTokenizer:
         n_raw = len(raw_text)
 
         while i_raw < n_raw:
+            if raw_text[i_raw:i_raw + len(BR_PLACEHOLDER)] == BR_PLACEHOLDER:
+                norm_parts.append('\n')
+                norm_to_raw.append(i_raw)
+                i_raw += len(BR_PLACEHOLDER)
+                continue
+
             if raw_text[i_raw] == '\n':
                 norm_parts.append('\n')
                 norm_to_raw.append(i_raw)
@@ -166,7 +185,7 @@ class HtmlSentenceTokenizer:
                     text = text[start - node_start:]
                     node_start = start
                 if node_end > end and node_start < end:
-                    text = text[:end - node_end]
+                    text = text[:end - node_start]
                 dest_parent.append(text)
 
             return current_pos + node_len
