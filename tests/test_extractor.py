@@ -12,7 +12,7 @@ def test_single_chapter(fs):
     epub_file = EpubFile(path)
     chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     assert len(chapters) == 1
-    assert chapters[0]["display_path"][0] == "Intro"
+    assert chapters[0]["toc_path"][0] == "Intro"
 
 
 def test_multiple_chapters_with_toc(fs):
@@ -24,8 +24,8 @@ def test_multiple_chapters_with_toc(fs):
     epub_file = EpubFile(path)
     chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     assert len(chapters) == 2
-    # The extractor uses the heading from the HTML, not the TOC label
-    assert chapters[0]["display_path"][-1] == "One"
+    # toc_path comes from the TOC labels
+    assert chapters[0]["toc_path"][-1] == "Ch One"
 
 
 def test_nested_toc(fs):
@@ -46,7 +46,7 @@ def test_nested_toc(fs):
     epub_file = EpubFile(path)
     chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     assert len(chapters) == 3
-    assert chapters[0]["display_path"][0] == "Part I"
+    assert chapters[0]["toc_path"][0] == "Part I"
 
 
 def test_header_fallback(fs):
@@ -57,7 +57,7 @@ def test_header_fallback(fs):
     epub_file = EpubFile(path)
     chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     assert len(chapters) >= 2
-    titles = [c["display_path"][0] for c in chapters]
+    titles = [c["toc_path"][0] for c in chapters]
     assert "H1" in titles and "H2" in titles
 
 
@@ -75,8 +75,8 @@ def test_guide_skip(fs):
     chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     # The real epub_utils does not skip guide items – both are extracted.
     assert len(chapters) == 2
-    assert "Cover" in chapters[0]["display_path"][-1]
-    assert "Chapter 1" in chapters[1]["display_path"][-1]
+    assert "Cover" in chapters[0]["toc_path"][-1]
+    assert "Chapter 1" in chapters[1]["toc_path"][-1]
 
 
 def test_footnotes_removed(fs):
@@ -91,10 +91,10 @@ def test_footnotes_removed(fs):
     chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     assert len(fn_map) == 1
     assert "Footnote content" in list(fn_map.values())[0]
-    text = chapters[0]["full_text"]
-    # With the real epub_utils, footnote bodies remain in the text,
-    # and the footnote reference marker ('1') is kept.
-    assert "Text1 end" in text
+    text = chapters[0]["content_html"]
+    # The footnote ref is replaced by a placeholder line; the footnote body
+    # stays in the chapter text because header fallback doesn't remove it.
+    assert "Text\n1\nend." in text
     assert "Footnote content" in text
 
 
@@ -104,7 +104,7 @@ def test_paragraphs_preserved(fs):
     path = write_epub_to_fake(fs, epub_bytes)
     epub_file = EpubFile(path)
     chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
-    text = chapters[0]["full_text"]
+    text = chapters[0]["content_html"]
     assert "Paragraph one." in text
     assert "Paragraph two." in text
     assert text.count("\n\n") == 1
@@ -124,7 +124,7 @@ def test_heading_with_styles(fs):
     assert len(chapters) >= 1
     # The extractor may skip the first heading if no text precedes it;
     # the first extracted chapter title might be "Chapter I" or "Section A"
-    assert chapters[0]["display_path"][0] in ("Chapter I", "Section A")
+    assert chapters[0]["toc_path"][0] in ("Chapter I", "Section A")
 
 
 def test_empty_book(fs):
@@ -150,10 +150,10 @@ def test_footnote_simple_sup(fs):
     assert len(fn_map) == 1
     assert fn_map.get("fn1", "") == "This is the note."
     assert len(chapters) == 1
-    text = chapters[0]["full_text"]
-    # No tokens; raw text with marker and footnote body still present
+    text = chapters[0]["content_html"]
+    # No tokens; the ref marker is a placeholder line, body remains in text
     assert "S_FNREF_1" not in text
-    assert "Before1after." in text
+    assert "Before\n1\nafter." in text
     assert "This is the note." in text
 
 
@@ -169,9 +169,9 @@ def test_footnote_numeric_without_sup(fs):
     epub_file = EpubFile(path)
     chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     assert fn_map.get("fn1") == "Note 1."
-    text = chapters[0]["full_text"]
+    text = chapters[0]["content_html"]
     assert "S_FNREF_1" not in text
-    assert "Text1 end." in text
+    assert "Text\n1\nend." in text
     assert "Note 1." in text
 
 
@@ -187,9 +187,9 @@ def test_footnote_bracket_marker(fs):
     epub_file = EpubFile(path)
     chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     assert fn_map.get("fn1") == "Bracket note."
-    text = chapters[0]["full_text"]
+    text = chapters[0]["content_html"]
     assert "S_FNREF_1" not in text
-    assert "X[1]Y" in text
+    assert "X\n[1]\nY" in text
     assert "Bracket note." in text
 
 
@@ -205,9 +205,9 @@ def test_footnote_symbol_marker(fs):
     epub_file = EpubFile(path)
     chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     assert fn_map.get("fnstar") == "Asterisk note."
-    text = chapters[0]["full_text"]
+    text = chapters[0]["content_html"]
     assert "S_FNREF_1" not in text
-    assert "Word*." in text
+    assert "Word\n*\n." in text
     assert "Asterisk note." in text
 
 
@@ -226,10 +226,10 @@ def test_multiple_footnotes_same_chapter(fs):
     assert len(fn_map) == 2
     assert fn_map["n1"] == "First note."
     assert fn_map["n2"] == "Second note."
-    text = chapters[0]["full_text"]
+    text = chapters[0]["content_html"]
     assert "S_FNREF_1" not in text
     assert "S_FNREF_2" not in text
-    assert "A1 B2 C" in text
+    assert "A\n1\nB\n2\nC" in text
     assert "First note." in text
     assert "Second note." in text
 
@@ -251,10 +251,10 @@ def test_footnote_cross_file(fs):
     path = write_epub_to_fake(fs, epub_bytes)
     epub_file = EpubFile(path)
     chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
-    ch_text = chapters[0]["full_text"]
-    # No token, just the marker; note body is not in this file
+    ch_text = chapters[0]["content_html"]
+    # No token, just the placeholder line; note body is not in this file
     assert "S_FNREF_1" not in ch_text
-    assert "Text1 end." in ch_text
+    assert "Text\n1\nend." in ch_text
     assert "cross-file note" not in ch_text
     assert fn_map.get("note1") == "This is a cross-file note."
 
@@ -271,8 +271,8 @@ def test_footnote_inside_heading(fs):
     epub_file = EpubFile(path)
     chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     # heading now contains the marker "1" because header fallback doesn't remove footnotes
-    assert chapters[0]["display_path"][0] == "Chapter 1\n1"
-    text = chapters[0]["full_text"]
+    assert chapters[0]["toc_path"][0] == "Chapter 1\n1"
+    text = chapters[0]["content_html"]
     # Body text remains; heading text is not in body
     assert "Body text." in text
     assert fn_map.get("fn1") == "Note in heading."

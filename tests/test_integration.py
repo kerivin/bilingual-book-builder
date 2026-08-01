@@ -13,6 +13,7 @@ LONG_TEXT = "This is a test chapter. " * 10
 def mock_heavy_deps():
     with patch('sentence_transformers.SentenceTransformer') as mock_st, \
          patch('bbb.splitter.SaT') as mock_sat, \
+         patch('bbb.splitter.SentenceSplitter') as mock_ss, \
          patch('bbb.aligner.Bertalign') as mock_bert:
         # produce embeddings with consistent dimensionality
         def encode_side_effect(texts, **kwargs):
@@ -24,6 +25,10 @@ def mock_heavy_deps():
             def split(self, lines, do_paragraph_segmentation=False):
                 return [line.split('. ') for line in lines]
         mock_sat.return_value = MockSaT()
+
+        # simple_split path reads sentence_splitter's data files from disk,
+        # which pyfakefs hides – mock the splitter instead
+        mock_ss.return_value.split = MagicMock(side_effect=lambda text: text.split('. '))
 
         class MockBertalign:
             def __init__(self, **kwargs):
@@ -83,8 +88,9 @@ def test_keep_unmatched_source(fs, mock_heavy_deps):
     assert len(book.spine) == 2
     c0 = book.get_item_with_id(book.spine[0][0]).get_content().decode()
     c1 = book.get_item_with_id(book.spine[1][0]).get_content().decode()
-    assert 'This is a test chapter' in c0
-    assert 'bilingual-source-only' in c1
+    assert 'bilingual-table' in c0
+    assert 'bilingual-table' not in c1
+    assert 'This is a test chapter' in c1
 
 
 def test_cover_option_target(fs, mock_heavy_deps):

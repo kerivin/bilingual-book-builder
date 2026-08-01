@@ -180,7 +180,7 @@ class Aligner:
                 ch = self.source_chapters[src_idx]
                 block['source'] = {
                     'toc_path': ch['toc_path'],
-                    'content_html': ch.get('content_html', '') if tgt_idx is not None else None,
+                    'content_html': ch.get('content_html', ''),
                     'index': ch['index'],
                     'body_class': ch.get('body_class', ''),
                     'footnote_placeholders': ch.get('footnote_placeholders', []),
@@ -189,7 +189,7 @@ class Aligner:
                 ch = self.target_chapters[tgt_idx]
                 block['target'] = {
                     'toc_path': ch['toc_path'],
-                    'content_html': ch.get('content_html', '') if src_idx is not None else None,
+                    'content_html': ch.get('content_html', ''),
                     'index': ch['index'],
                     'body_class': ch.get('body_class', ''),
                     'footnote_placeholders': ch.get('footnote_placeholders', []),
@@ -216,7 +216,7 @@ class Aligner:
                         alignment = future.result()
                     except Exception as e:
                         self.log.error(f"Error aligning chapter pair {idx}: {e}")
-                        alignment = [{'source_html': '', 'target_html': '', 'source_first': False, 'target_first': False}]
+                        alignment = [{'source_sents': [], 'target_sents': []}]
                     output[idx]['alignment'] = alignment
                     progress.update('aligning')
 

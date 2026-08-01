@@ -6,7 +6,7 @@ from conftest import create_chapter_html
 
 @pytest.fixture
 def tokenizer():
-    splitter = Splitter("en")
+    splitter = Splitter(None)
     return HtmlSentenceTokenizer(splitter)
 
 
@@ -22,24 +22,20 @@ def test_chapter_with_verses(tokenizer):
     <p>Another paragraph.</p>
     """)
     sents, para_starts = tokenizer.extract(html, None)
-    
-    # Should have: 1 regular para sentence + 3 poem lines + 1 another para sentence = 5 sentences
-    assert len(sents) == 5
-    
-    # Regular paragraph first sentence should be indented
-    assert 0 in para_starts
-    
-    # Each poem line should be indented (first sentence of each line)
-    assert 1 in para_starts
-    assert 2 in para_starts
-    assert 3 in para_starts
-    
-    # Another paragraph first sentence should be indented
-    assert 4 in para_starts
+
+    # Title heading + 5 paragraphs = 6 sentences
+    assert len(sents) == 6
+
+    # The h1 title is a heading, not indented
+    assert 0 not in para_starts
+
+    # Regular paragraph and each poem line are separate paragraphs, all indented
+    for i in range(1, 6):
+        assert i in para_starts
 
 
 def test_chapter_with_headings(tokenizer):
-    """Test that headings are not indented."""
+    """Test that heading tags are not indented (class-based headings are not special-cased)."""
     html = create_chapter_html("Chapter 1", """
     <h1>Main Title</h1>
     <h2>Subtitle</h2>
@@ -48,17 +44,13 @@ def test_chapter_with_headings(tokenizer):
     <p>Second paragraph.</p>
     """)
     sents, para_starts = tokenizer.extract(html, None)
-    
-    # Headings should not be indented
-    # The exact indices depend on how many sentences are extracted from each element
-    # But we can check that heading elements themselves are not marked for indentation
-    
-    # Find which sentences come from headings
+
+    # Real heading tags (h1/h2) are not marked for indentation
     heading_sentences = []
     for i, (text, fragment) in enumerate(sents):
-        if '<h1>' in fragment or '<h2>' in fragment or 'chapter-title' in fragment:
+        if '<h1' in fragment or '<h2' in fragment:
             heading_sentences.append(i)
-    
+
     # None of the heading sentences should be in para_starts
     for idx in heading_sentences:
         assert idx not in para_starts, f"Heading sentence at index {idx} should not be indented"
@@ -78,12 +70,15 @@ def test_complex_html_structure(tokenizer):
     </body></html>
     """
     sents, para_starts = tokenizer.extract(html, None)
-    
-    # Should have multiple sentences
+
+    # Title heading + 4 paragraphs = 5 sentences
     assert len(sents) >= 4
-    
+
+    # The h1 title is not a paragraph start
+    assert 0 not in para_starts
+
     # First paragraph should be indented
-    assert 0 in para_starts
+    assert 1 in para_starts
     
     # HTML tags should be preserved
     for text, fragment in sents:

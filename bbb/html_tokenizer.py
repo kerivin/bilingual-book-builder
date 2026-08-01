@@ -112,7 +112,9 @@ class HtmlSentenceTokenizer:
 
         if not all_sents:
             full_text = root.get_text()
-            return [(full_text.strip(), str(root))], {0}
+            if full_text.strip():
+                return [(full_text.strip(), str(root))], {0}
+            return [], set()
 
         return all_sents, paragraph_starts
 
