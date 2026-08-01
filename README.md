@@ -110,9 +110,7 @@ The code is AI-assisted.
 
 ## Known issues
 
-- Some chapters are not detected and thus skipped
-- Bold, italics, etc styles are lost
+- Custom classes from the original CSS files are ignored
 - Some readers still display the table borders even thought they are transparent
-- Should I clean titles not tagged as titles leaking into the chapter body?
 - Now I only build side-dy-side horizontal alignment, maybe I should add translation-after-original vertical alignment
 - Convert other formats to EPUB
