@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bbb"
-version = "0.1"
+version = "0.2"
 description = "Bilingual Book Builder"
 readme = "README.md"
 requires-python = ">=3.13"

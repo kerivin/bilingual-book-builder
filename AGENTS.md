@@ -3,6 +3,7 @@ Builds a parallel-text EPUB with sentences aligned side-by-side from two EPUBs o
 ## Design constraints (do not violate)
 
 - No book-specific code or special-casing of custom classes; must work on any valid EPUB.
+- Never hardcode any language-specific details. It must be language-agnostic.
 - Alignment is always at sentence level — never align whole paragraphs.
 - Sentences split by newlines in the original must be pre-split before the external splitter runs: they are effectively different sentences.
 - The first sentence of each logical paragraph (rendered reading paragraph, not `<p>`) gets indentation, regardless of whether it lands as the first, last, or middle row of the table.
