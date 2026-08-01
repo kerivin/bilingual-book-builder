@@ -281,6 +281,7 @@ class BookBuilder:
                 width: 100% !important;
                 border-collapse: collapse;
                 table-layout: fixed !important;
+                font-size: inherit !important;
             }
             .bilingual-table td {
                 display: table-cell !important;
