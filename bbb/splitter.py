@@ -83,10 +83,10 @@ class Splitter:
 
             if self.model_name:
                 splitter = SatWrapper(language, self.model_name)
-                self.log.info(f"Created SaT for {language.name}")
+                self.log.info(f"Created SaT for {language.name if language else None}")
             else:
                 splitter = SimpleWrapper(language)
-                self.log.info(f"Created simple SentenceSplitter for {language.name}")
+                self.log.info(f"Created simple SentenceSplitter for {language.name if language else None}")
 
             self.models[language] = splitter
             return splitter

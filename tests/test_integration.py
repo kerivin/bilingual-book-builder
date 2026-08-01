@@ -13,6 +13,7 @@ LONG_TEXT = "This is a test chapter. " * 10
 def mock_heavy_deps():
     with patch('sentence_transformers.SentenceTransformer') as mock_st, \
          patch('bbb.splitter.SaT') as mock_sat, \
+         patch('bbb.splitter.SentenceSplitter') as mock_ss, \
          patch('bbb.aligner.Bertalign') as mock_bert:
         # produce embeddings with consistent dimensionality
         def encode_side_effect(texts, **kwargs):
@@ -24,6 +25,10 @@ def mock_heavy_deps():
             def split(self, lines, do_paragraph_segmentation=False):
                 return [line.split('. ') for line in lines]
         mock_sat.return_value = MockSaT()
+
+        # simple_split path reads sentence_splitter's data files from disk,
+        # which pyfakefs hides – mock the splitter instead
+        mock_ss.return_value.split = MagicMock(side_effect=lambda text: text.split('. '))
 
         class MockBertalign:
             def __init__(self, **kwargs):
@@ -83,8 +88,9 @@ def test_keep_unmatched_source(fs, mock_heavy_deps):
     assert len(book.spine) == 2
     c0 = book.get_item_with_id(book.spine[0][0]).get_content().decode()
     c1 = book.get_item_with_id(book.spine[1][0]).get_content().decode()
-    assert 'This is a test chapter' in c0
-    assert 'bilingual-source-only' in c1
+    assert 'bilingual-table' in c0
+    assert 'bilingual-table' not in c1
+    assert 'This is a test chapter' in c1
 
 
 def test_cover_option_target(fs, mock_heavy_deps):
@@ -121,3 +127,16 @@ def test_only_extract(fs, mock_heavy_deps):
                   only='extract', verbosity='quiet')
         bbb.run()
     mock_write.assert_not_called()
+
+
+def test_invalid_epub_does_not_crash(fs, mock_heavy_deps):
+    fs.create_file("/fake/bad.epub", contents=b"this is not an epub")
+    tgt_bytes = make_epub_bytes([{"filename": "t.xhtml",
+                                  "content": create_chapter_html("T", LONG_TEXT)}])
+    tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
+    out_path = "/fake/out.epub"
+
+    bbb = BBB(source_path="/fake/bad.epub", target_path=tgt_path,
+              output=out_path, verbosity='quiet', simple_split=True)
+    bbb.run()
+    assert not fs.exists(out_path)

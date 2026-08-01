@@ -1,17 +1,24 @@
 import os
 import uuid
-import html
+import re
+import posixpath
 from typing import List, Dict, Any, Optional
 from ebooklib import epub
-import ebooklib
 import logging
+
+from bs4 import BeautifulSoup, Tag
 
 from bbb import progress
 from bbb.epub_file import EpubFile
+from bbb.constants import SRC_FN_PREFIX, TGT_FN_PREFIX
+
+BLOCK_INDENT_TAGS = {'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote',
+                     'li', 'section', 'article', 'header', 'footer', 'aside', 'main'}
 
 
 class BookBuilder:
-    def __init__(self, source_book: EpubFile, target_book: EpubFile, blocks: List[Dict[str, Any]],
+    def __init__(self, source_book: EpubFile, target_book: EpubFile,
+                 blocks: List[Dict[str, Any]],
                  copy_target_cover=False,
                  source_footnotes=None, target_footnotes=None):
         self.source_book = source_book.ebook
@@ -21,21 +28,6 @@ class BookBuilder:
         self.source_footnotes = source_footnotes or {}
         self.target_footnotes = target_footnotes or {}
         self.log = logging.getLogger(__name__)
-
-    @staticmethod
-    def _escape(text: str) -> str:
-        return html.escape(text, quote=False)
-
-    @staticmethod
-    def _inline_html(text: str) -> str:
-        return BookBuilder._escape(text).replace('\n', '<br/>\n')
-
-    @staticmethod
-    def _paragraphs_html(text: str) -> str:
-        paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-        return '\n'.join(
-            f'<p>{BookBuilder._inline_html(p)}</p>' for p in paragraphs
-        )
 
     def _get_base_dir(self) -> str:
         spine = self.target_book.spine
@@ -48,6 +40,12 @@ class BookBuilder:
         href = item.file_name
         return os.path.dirname(href) + "/" if os.path.dirname(href) else ""
 
+    def _relative_href(self, file_name: str) -> str:
+        base_dir = self._get_base_dir()
+        if not base_dir:
+            return file_name
+        return posixpath.relpath(file_name, base_dir)
+
     def _copy_cover(self, new_book: epub.EpubBook) -> None:
         cover_id = None
         book = self.target_book if self.copy_target_cover else self.source_book
@@ -56,62 +54,40 @@ class BookBuilder:
             if attrs.get('name') == 'cover':
                 cover_id = attrs.get('content')
                 break
-
-        cover_item = None
-        if cover_id:
-            cover_item = book.get_item_with_id(cover_id)
-
+        cover_item = book.get_item_with_id(cover_id) if cover_id else None
         if cover_item:
             new_book.set_cover(cover_item.file_name, cover_item.get_content())
-
-    def _copy_styles(self, new_book: epub.EpubBook) -> List[str]:
-        css_links = []
-        for item in self.target_book.get_items():
-            if item.get_type() == ebooklib.ITEM_STYLE:
-                css = epub.EpubItem(
-                    uid=item.get_id(),
-                    file_name=item.file_name,
-                    media_type='text/css',
-                    content=item.get_content()
-                )
-                new_book.add_item(css)
-                css_links.append(item.file_name)
-        return css_links
 
     def _copy_metadata(self, new_book: epub.EpubBook):
         def get_metadata(book, key):
             return [val[0] for val in book.get_metadata('DC', key)] if book else []
 
-        src_titles = get_metadata(self.source_book, 'title') if self.source_book else []
-        tgt_titles = get_metadata(self.target_book, 'title') if self.target_book else []
+        src_titles = get_metadata(self.source_book, 'title')
+        tgt_titles = get_metadata(self.target_book, 'title')
 
-        title: str = ""
+        title = ''
         if src_titles and tgt_titles:
             title = f"{src_titles[0]} / {tgt_titles[0]}"
         elif tgt_titles:
             title = tgt_titles[0]
         elif src_titles:
             title = src_titles[0]
-
-        self.log.info(f"New book title: {title}")
         new_book.set_title(title)
 
         def set_authors_from(book):
-            authors: str = ""
+            if book is None:
+                return
             for creator in book.get_metadata('DC', 'creator'):
                 attrs = creator[1] if len(creator) > 1 else {}
-                known_kwargs = {}
+                known = {}
                 if 'opf:role' in attrs:
-                    known_kwargs['role'] = attrs['opf:role']
+                    known['role'] = attrs['opf:role']
                 if 'opf:file-as' in attrs:
-                    known_kwargs['file_as'] = attrs['opf:file-as']
+                    known['file_as'] = attrs['opf:file-as']
                 try:
-                    new_book.add_author(creator[0], **known_kwargs)
-                    authors += f"{creator[0]}, "
+                    new_book.add_author(creator[0], **known)
                 except TypeError:
                     new_book.add_author(creator[0])
-                    authors += f"{creator[0]}, "
-            self.log.info(f"New book authors: {authors}")
 
         set_authors_from(self.source_book)
         set_authors_from(self.target_book)
@@ -123,37 +99,25 @@ class BookBuilder:
             if lang not in get_metadata(self.target_book, 'language'):
                 new_book.add_metadata('DC', 'language', lang)
 
-        src_pubs = get_metadata(self.source_book, 'publisher')
-        tgt_pubs = get_metadata(self.target_book, 'publisher')
-        for pub in src_pubs + tgt_pubs:
-            new_book.add_metadata('DC', 'publisher', pub)
-
-        tgt_dates = get_metadata(self.target_book, 'date')
-        if tgt_dates:
-            for date in tgt_dates:
-                new_book.add_metadata('DC', 'date', date)
-        for date in get_metadata(self.source_book, 'date'):
-            new_book.add_metadata('DC', 'date', date)
-
-        for key in ('description', 'subject', 'contributor', 'rights'):
+        for key in ('publisher', 'date', 'description', 'subject', 'contributor', 'rights'):
             src_vals = get_metadata(self.source_book, key)
             tgt_vals = get_metadata(self.target_book, key)
             for val in src_vals + tgt_vals:
                 new_book.add_metadata('DC', key, val)
 
         identifier = None
-        target_identifiers = get_metadata(self.target_book, 'identifier')
-        if target_identifiers:
-            identifier = target_identifiers[0]
+        tgt_ids = get_metadata(self.target_book, 'identifier')
+        if tgt_ids:
+            identifier = tgt_ids[0]
         if not identifier:
-            source_identifiers = get_metadata(self.source_book, 'identifier')
-            if source_identifiers:
-                identifier = source_identifiers[0]
+            src_ids = get_metadata(self.source_book, 'identifier')
+            if src_ids:
+                identifier = src_ids[0]
         if not identifier:
             identifier = f"urn:uuid:{uuid.uuid4()}"
         new_book.set_identifier(identifier)
 
-    def _build_toc(self, flat_entries: List[Dict[str, Any]]) -> list:
+    def _build_toc(self, flat_entries):
         tree = {}
         for entry in flat_entries:
             path = entry['toc_path']
@@ -166,226 +130,190 @@ class BookBuilder:
                     node[part]['link'] = link
                 node = node[part]['sub']
 
-        def build(items_subtree):
-            toc_items = []
-            for label, info in items_subtree.items():
-                child_toc = build(info['sub'])
+        def build(subtree):
+            items = []
+            for label, info in subtree.items():
+                child = build(info['sub'])
                 link = info['link']
                 if link is not None:
-                    if child_toc:
-                        section = epub.Section(label, href=link.href)
-                        toc_items.append((section, child_toc))
+                    if child:
+                        items.append((epub.Section(label, href=link.href), child))
                     else:
-                        toc_items.append(link)
+                        items.append(link)
                 else:
-                    if child_toc:
-                        section = epub.Section(label)
-                        toc_items.append((section, child_toc))
-            return toc_items
+                    if child:
+                        items.append((epub.Section(label), child))
+            return items
 
         return build(tree)
 
-    def _create_xhtml_item(self, book: epub.EpubBook, file_name: str, title: str,
-                           body_html: str, css_links: List[str], uid: Optional[str] = None):
-        if uid is None:
-            uid = f"chap_{uuid.uuid4().hex[:8]}"
-        item = epub.EpubHtml(
-            uid=uid,
-            file_name=file_name,
-            media_type='application/xhtml+xml'
-        )
-        item.title = title
-        item.set_content(body_html)
-        for css_path in css_links:
-            item.add_link(href=css_path, rel='stylesheet', type='text/css')
-        book.add_item(item)
-        return item
+    def _replace_footnote_tokens(self, text: str, token_map: Dict[str, str],
+                                 global_footnotes: Dict[str, str],
+                                 used_numbers: List[int]) -> tuple[str, list]:
+        token_pattern = re.compile(rf'({re.escape(SRC_FN_PREFIX)}FNREF_\d+|{re.escape(TGT_FN_PREFIX)}FNREF_\d+)')
+        footnote_items = []
 
-    def _apply_footnote_links(self, text, token_occurrences, footnote_bodies, used_numbers):
-        if not token_occurrences:
-            return text, []
-
-        token_to_html = {}
-        fn_items = []
-        for occ in token_occurrences:
-            token = occ['token']
-            if token in token_to_html:
-                continue
+        def replacer(m):
+            token = m.group(1)
+            target_id = token_map.get(token)
+            if not target_id:
+                return token
             num = used_numbers[0] + 1
             used_numbers[0] = num
-            target_id = occ['target_id']
+            fn_body = global_footnotes.get(target_id, '')
             ref_id = f'fnref_{num}'
             fn_id = f'fn_{num}'
-            link_html = f'<sup class="footnote-ref" id="{ref_id}"><a href="#{fn_id}">[{num}]</a></sup>'
-            token_to_html[token] = link_html
-            body = footnote_bodies.get(target_id, '')
-            fn_items.append({'id': fn_id, 'ref_id': ref_id, 'body': body})
+            footnote_items.append({
+                'id': fn_id,
+                'ref_id': ref_id,
+                'body': fn_body
+            })
+            return f'<sup class="footnote-ref" id="{ref_id}"><a href="#{fn_id}">[{num}]</a></sup>'
 
-        for token, html_tag in token_to_html.items():
-            text = text.replace(token, html_tag)
-        return text, fn_items
+        processed = token_pattern.sub(replacer, text)
+        return processed, footnote_items
 
-    def _build_footnote_list(self, fn_items):
-        if not fn_items:
+    def _build_footnote_list(self, footnote_items: list) -> str:
+        if not footnote_items:
             return ''
         items = ''.join(
             f'<li id="{fn["id"]}">{fn["body"]} '
             f'<a href="#{fn["ref_id"]}" class="footnote-backref">↩</a></li>'
-            for fn in fn_items
+            for fn in footnote_items
         )
-        return '<hr class="footnote-separator"/><div class="footnotes"><ol>' + items + '</ol></div>'
+        return f'<hr class="footnote-separator"/><div class="footnotes"><ol>{items}</ol></div>'
 
-    def _build_two_column_html(self, aligned_paras, header_row: str = "") -> str:
+    def _apply_indent_to_block(self, html_str: str) -> str:
+        soup = BeautifulSoup(html_str, 'html.parser')
+        first_tag = soup.contents[0] if isinstance(soup.contents[0], Tag) else soup.find()
+        if first_tag is not None and first_tag.name in BLOCK_INDENT_TAGS:
+            current_style = first_tag.get('style', '')
+            parts = [s for s in current_style.split(';') if 'text-indent' not in s]
+            clean_style = ';'.join(parts).strip().rstrip(';')
+            new_style = (clean_style + '; ' if clean_style else '') + 'text-indent: 2em !important'
+            first_tag['style'] = new_style
+            return str(soup)
+        return f'<span style="text-indent: 2em !important; display: block !important">{html_str}</span>'
+
+    def _build_two_column_html(self, aligned_rows):
         rows = []
-        if header_row:
-            rows.append(header_row)
-        for para in aligned_paras:
-            for i, seg in enumerate(para):
-                row_class = 'class="first-sentence"' if i == 0 else ''
-                rows.append(
-                    f'<tr {row_class}>'
-                    f'<td class="bilingual-left">{seg["source"]}</td>'
-                    f'<td class="bilingual-right">{seg["target"]}</td>'
-                    f'</tr>'
-                )
-        return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
+        for row in aligned_rows:
+            src_sents = row.get('source_sents', [])
+            tgt_sents = row.get('target_sents', [])
 
-    def _make_heading_html(self, path: List[str], prev_path: List[str]) -> str:
-        common = 0
-        for a, b in zip(path, prev_path):
-            if a == b:
-                common += 1
-            else:
-                break
+            src_parts = []
+            for s in src_sents:
+                html = s['html']
+                if s.get('first'):
+                    html = self._apply_indent_to_block(html)
+                src_parts.append(html)
+            src_html = '\n'.join(src_parts)
 
-        visible = path[common:]
-        if not visible:
-            visible = path
+            tgt_parts = []
+            for t in tgt_sents:
+                html = t['html']
+                if t.get('first'):
+                    html = self._apply_indent_to_block(html)
+                tgt_parts.append(html)
+            tgt_html = '\n'.join(tgt_parts)
 
-        lines = []
-        for i, label in enumerate(visible):
-            depth = common + i + 1
-            level = min(depth, 6)
-            escaped = html.escape(label)
-            lines.append(f'<h{level} class="bilingual-heading">{escaped}</h{level}>')
-
-        return '\n'.join(lines)
-
-    def _build_single_side_chapter(self, side_info, footnotes_map, prev_path, css_class):
-        display_path = side_info.get('display_path', [])
-        toc_path = side_info.get('toc_path', [])
-        heading = self._make_heading_html(display_path, prev_path)
-        raw_text = side_info.get('text', '')
-        body = self._paragraphs_html(raw_text)
-        fn_refs = side_info.get('footnote_refs', [])
-        if fn_refs:
-            used_numbers = [0]
-            body, fn_items = self._apply_footnote_links(body, fn_refs, footnotes_map, used_numbers)
-        else:
-            fn_items = []
-        body_html = f'<div class="{css_class}">\n{heading}\n{body}\n</div>'
-        if fn_items:
-            body_html += self._build_footnote_list(fn_items)
-        flat_title = display_path[-1] if display_path else ''
-        return {'body_html': body_html, 'flat_title': flat_title, 'toc_path': toc_path}
-
-    def _build_chapter(self, source_info: Optional[Dict[str, Any]],
-                       target_info: Optional[Dict[str, Any]],
-                       alignment: List[List[Dict[str, str]]],
-                       prev_source_path: List[str],
-                       prev_target_path: List[str]) -> Dict[str, Any]:
-
-        if source_info and target_info:
-            src_display = source_info.get('display_path', [])
-            tgt_display = target_info.get('display_path', [])
-            src_heading = self._make_heading_html(src_display, prev_source_path)
-            tgt_heading = self._make_heading_html(tgt_display, prev_target_path)
-            header_row = (
-                f'<tr class="title-row">'
-                f'<td class="bilingual-left">{src_heading}</td>'
-                f'<td class="bilingual-right">{tgt_heading}</td>'
+            rows.append(
+                f'<tr>'
+                f'<td class="bilingual-left">{src_html}</td>'
+                f'<td class="bilingual-right">{tgt_html}</td>'
                 f'</tr>'
             )
-
-            all_fn_items = []
-            used_numbers = [0]
-            processed_paras = []
-            for para in alignment:
-                new_para = []
-                for seg in para:
-                    src_text = seg['source']
-                    tgt_text = seg['target']
-                    src_occ = seg.get('source_footnote_occurrences', [])
-                    tgt_occ = seg.get('target_footnote_occurrences', [])
-                    src_html, src_fns = self._apply_footnote_links(
-                        self._inline_html(src_text), src_occ, self.source_footnotes, used_numbers
-                    )
-                    tgt_html, tgt_fns = self._apply_footnote_links(
-                        self._inline_html(tgt_text), tgt_occ, self.target_footnotes, used_numbers
-                    )
-                    all_fn_items.extend(src_fns + tgt_fns)
-                    new_para.append({'source': src_html, 'target': tgt_html})
-                processed_paras.append(new_para)
-
-            body_html = self._build_two_column_html(processed_paras, header_row)
-            if all_fn_items:
-                body_html += self._build_footnote_list(all_fn_items)
-            flat_title = src_display[-1] + ' / ' + tgt_display[-1]
-            toc_path = target_info.get('toc_path', [])
-            return {'body_html': body_html, 'flat_title': flat_title, 'toc_path': toc_path}
-
-        elif source_info:
-            return self._build_single_side_chapter(
-                source_info, self.source_footnotes, prev_source_path, 'bilingual-source-only'
-            )
-        elif target_info:
-            return self._build_single_side_chapter(
-                target_info, self.target_footnotes, prev_target_path, 'bilingual-target-only'
-            )
-        else:
-            return {'body_html': '', 'flat_title': '', 'toc_path': []}
+        return '<table class="bilingual-table">' + ''.join(rows) + '</table>'
 
     def run(self) -> epub.EpubBook | None:
         new_book = epub.EpubBook()
         self._copy_metadata(new_book)
         self._copy_cover(new_book)
-        css_links = self._copy_styles(new_book)
+        css_links = []
 
         base_dir = self._get_base_dir()
-        bilingual_css = epub.EpubItem(
-            uid="bilingual_css",
-            file_name=base_dir + "bilingual.css",
+        generic_css = epub.EpubItem(
+            uid="generic_css",
+            file_name=base_dir + "generic.css",
             media_type='text/css',
             content=b"""
+            body {
+                margin: 0;
+                padding: 0;
+            }
+
+            b, strong { font-weight: bold; }
+            i, em, cite { font-style: italic; }
+            u { text-decoration: underline; }
+            small { font-size: 0.8em; }
+            sub, sup { font-size: 0.75em; line-height: 0; position: relative; vertical-align: baseline; }
+            sup { top: -0.5em; }
+            sub { bottom: -0.25em; }
+
+            h1, h2, h3, h4, h5, h6 {
+                font-weight: bold;
+                margin: 0.5em 0 0.2em 0;
+                padding: 0;
+                text-align: center;
+            }
+            h1 { font-size: 1.6em; }
+            h2 { font-size: 1.4em; }
+            h3 { font-size: 1.2em; }
+            h4 { font-size: 1.1em; }
+            h5 { font-size: 1em; }
+            h6 { font-size: 0.9em; }
+
+            .subtitle {
+                font-weight: bold;
+                text-align: center;
+                margin: 0.5em 0;
+            }
+
+            p, .paragraph {
+                display: block;
+            }
+            blockquote {
+                display: block;
+                margin: 0.5em 1.5em;
+            }
+
             .bilingual-table {
-                width: 100%;
+                width: 100% !important;
                 border-collapse: collapse;
-                table-layout: fixed;
+                table-layout: fixed !important;
             }
             .bilingual-table td {
                 display: table-cell !important;
                 vertical-align: top;
                 padding: 0.3em 1em;
-                width: 50%;
-            }
-            tr.first-sentence td {
-                text-indent: 1.5em;
-            }
-            .bilingual-heading {
-                font-weight: bold;
-                text-align: center;
-                white-space: pre-line;
-                margin: 0.5em 0;
+                width: 50% !important;
+                box-sizing: border-box !important;
             }
             .bilingual-table,
             .bilingual-table tr,
-            .bilingual-table td,
-            .bilingual-heading {
+            .bilingual-table td {
                 border: 0 none transparent !important;
-                border-style: none !important;
-                border-width: 0 !important;
-                border-color: transparent !important;
             }
+
+            .bilingual-left, .bilingual-right {
+            }
+
+            .bilingual-left *, .bilingual-right * {
+                margin: 0 !important;
+                padding: 0 !important;
+                text-indent: 0 !important;
+                float: none !important;
+                clear: none !important;
+                position: static !important;
+                width: auto !important;
+                max-width: none !important;
+                min-width: 0 !important;
+                height: auto !important;
+                max-height: none !important;
+                min-height: 0 !important;
+                box-sizing: content-box !important;
+            }
+
             .footnote-ref {
                 font-size: 0.75em;
                 vertical-align: super;
@@ -404,55 +332,80 @@ class BookBuilder:
             }
             """
         )
-        new_book.add_item(bilingual_css)
-        css_links.append(bilingual_css.file_name)
+        new_book.add_item(generic_css)
+        css_links.append(generic_css.file_name)
 
         new_spine_ids = []
         toc_entries = []
 
-        last_source_path: List[str] = []
-        last_target_path: List[str] = []
-
         with progress.phase('building', len(self.blocks), "Building chapters"):
             for block_idx, block in enumerate(self.blocks):
-                source_info = block.get('source')
-                target_info = block.get('target')
-                if source_info is None and target_info is None:
+                source = block.get('source')
+                target = block.get('target')
+                if not source and not target:
                     continue
 
-                alignment = block.get('alignment') or []
+                alignment = block.get('alignment', [])
+                if source and target and alignment:
+                    body_content = self._build_two_column_html(alignment)
+                elif source:
+                    body_content = source.get('content_html', '')
+                elif target:
+                    body_content = target.get('content_html', '')
+                else:
+                    body_content = ''
 
-                ch = self._build_chapter(
-                    source_info, target_info, alignment,
-                    prev_source_path=last_source_path,
-                    prev_target_path=last_target_path,
+                token_map = {}
+                if source and source.get('footnote_placeholders'):
+                    for p in source['footnote_placeholders']:
+                        token_map[p['token']] = p['target_id']
+                if target and target.get('footnote_placeholders'):
+                    for p in target['footnote_placeholders']:
+                        token_map[p['token']] = p['target_id']
+
+                global_fns = {}
+                global_fns.update(self.source_footnotes)
+                global_fns.update(self.target_footnotes)
+
+                used_numbers = [0]
+                body_content, footnote_items = self._replace_footnote_tokens(
+                    body_content, token_map, global_fns, used_numbers
                 )
+                footnotes_html = self._build_footnote_list(footnote_items)
 
-                if source_info:
-                    last_source_path = source_info.get('display_path', [])
-                if target_info:
-                    last_target_path = target_info.get('display_path', [])
+                full_body = body_content + '\n' + footnotes_html
+
+                toc_path = []
+                if target:
+                    toc_path = target['toc_path']
+                elif source:
+                    toc_path = source['toc_path']
+                flat_title = toc_path[-1] if toc_path else ''
 
                 file_name = f"{base_dir}chap_{block_idx:03d}.xhtml"
                 uid = f"chap_{block_idx:03d}"
-                item = self._create_xhtml_item(
-                    new_book, file_name, ch['flat_title'],
-                    ch['body_html'], css_links, uid
+                item = epub.EpubHtml(
+                    uid=uid,
+                    file_name=file_name,
+                    media_type='application/xhtml+xml'
                 )
+                item.title = flat_title
+                item.set_content(full_body)
+                for css_path in css_links:
+                    item.add_link(href=self._relative_href(css_path), rel='stylesheet', type='text/css')
+                new_book.add_item(item)
+
                 new_spine_ids.append(item.get_id())
                 toc_entries.append({
                     'file_name': item.file_name,
                     'uid': item.get_id(),
-                    'toc_path': ch['toc_path'],
+                    'toc_path': toc_path,
                 })
 
                 progress.update('building')
 
         new_book.add_item(epub.EpubNcx())
         new_book.add_item(epub.EpubNav())
-
         new_book.spine = new_spine_ids
         new_book.toc = self._build_toc(toc_entries)
-
-        self.log.info("Book is ready!")
         return new_book
