@@ -118,11 +118,11 @@ def test_footnotes_in_output(fs):
     assert 'class="footnotes"' in body
 
 
-def test_generic_css_added(fs):
-    """The built book gets its own generic.css; target styles are not copied."""
-    src_bytes = make_epub_bytes([], title="Src")
+def test_styles_not_copied(fs):
+    """The built book links only its own generic.css, never the source/target styles."""
+    src_bytes = make_epub_bytes([], title="Src", styles=[("src_style.css", b"body{color:red;}")])
     tgt_bytes = make_epub_bytes([{"filename": "ch.xhtml", "content": "<p>t</p>"}],
-                                title="Tgt", styles=[("style.css", b"body{color:red;}")])
+                                title="Tgt", styles=[("tgt_style.css", b"body{color:blue;}")])
     src_path = write_epub_to_fake(fs, src_bytes, "src.epub")
     tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
     src_file = EpubFile(src_path)
@@ -133,4 +133,32 @@ def test_generic_css_added(fs):
     assert new_book is not None
     all_files = [i.file_name for i in new_book.get_items()]
     assert "generic.css" in all_files
-    assert "style.css" not in all_files
+    assert "src_style.css" not in all_files
+    assert "tgt_style.css" not in all_files
+
+
+def test_relative_href_nested(fs):
+    tgt_bytes = make_epub_bytes(
+        [{"filename": "text/ch.xhtml", "content": create_chapter_html("T Ch1", "Tgt text")}],
+        title="Tgt")
+    tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
+    bb = BookBuilder.__new__(BookBuilder)
+    bb.target_book = EpubFile(tgt_path).ebook
+    assert bb._relative_href('Styles/style.css') == '../Styles/style.css'
+    assert bb._relative_href('text/style.css') == 'style.css'
+
+
+def test_indent_wraps_inline_fragment():
+    bb = BookBuilder.__new__(BookBuilder)
+    wrapped = bb._apply_indent_to_block('<i>Italic sentence.</i>')
+    assert wrapped.startswith('<span')
+    assert 'display: block' in wrapped
+    assert 'text-indent: 2em' in wrapped
+    block = bb._apply_indent_to_block('<p>Sentence.</p>')
+    assert '<p' in block
+    assert 'text-indent: 2em' in block
+
+
+def test_epub_file_rejects_garbage(fs):
+    fs.create_file("/fake/bad.epub", contents=b"this is not an epub")
+    assert not EpubFile("/fake/bad.epub")

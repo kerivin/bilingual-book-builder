@@ -253,8 +253,10 @@ class Extractor:
     def _load_soup(self, full_href: str) -> Optional[BeautifulSoup]:
         try:
             content = self.doc.get_file_by_path(full_href)
+            if content is None:
+                return None
             return BeautifulSoup(content.to_str(), "html.parser")
-        except (ValueError, AttributeError, KeyError):
+        except (ValueError, AttributeError, KeyError, TypeError):
             return None
 
     def _clean_soup(self, soup: BeautifulSoup, handle_footnotes: bool = True,
@@ -363,7 +365,8 @@ class Extractor:
             idx = self._resolve_toc_target_to_spine_index(item.target)
             if idx is None or idx in skip_spine:
                 continue
-            label_lower = item.label.strip().lower()
+            label = item.label or ''
+            label_lower = label.strip().lower()
             if label_lower in SKIP_CHAPTER_TYPES:
                 continue
             anchor = item.target.split('#', 1)[1] if '#' in item.target else None

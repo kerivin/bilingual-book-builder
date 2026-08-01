@@ -1,6 +1,7 @@
 import numpy as np
 from enum import IntEnum
 import logging
+from bs4 import BeautifulSoup
 from bbb import progress, utils
 
 class Mapper:
@@ -226,6 +227,8 @@ class Mapper:
         def chapter_signature(chapter):
             title = chapter.get('toc_path', [''])[-1]
             full_text = chapter.get('full_text', '')
+            if not full_text:
+                full_text = BeautifulSoup(chapter.get('content_html', ''), 'html.parser').get_text(separator=' ')
             if not full_text:
                 return title
 

@@ -10,17 +10,31 @@ class EpubFile:
         self.path = Path(path)
         self._document = None
         self._ebook = None
+        self._error = None
+
+    def _load(self):
+        if self._error is not None or self._document is not None:
+            return
+        try:
+            self._document = Document(str(self.path))
+            self._ebook = epub.read_epub(str(self.path))
+        except Exception as exc:
+            self._error = exc
+            self._document = None
+            self._ebook = None
+
+    def __bool__(self):
+        self._load()
+        return self._error is None
 
     @property
     def document(self) -> Document:
-        if self._document is None:
-            self._document = Document(str(self.path))
+        self._load()
         return self._document
 
     @property
     def ebook(self) -> epub.EpubBook:
-        if self._ebook is None:
-            self._ebook = epub.read_epub(str(self.path))
+        self._load()
         return self._ebook
 
     def get_metadata(self, namespace, key):

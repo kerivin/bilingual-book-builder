@@ -32,14 +32,27 @@ class Aligner:
         self.source_chapters = source_chapters
         self.target_chapters = target_chapters
         self.chapter_pairs = chapter_pairs
-        self.source_language = Language.from_iso_code_639_1(IsoCode639_1.from_str(source_language)) if source_language else None
-        self.target_language = Language.from_iso_code_639_1(IsoCode639_1.from_str(target_language)) if target_language else None
+        self.source_language = self._parse_language(source_language)
+        self.target_language = self._parse_language(target_language)
         self.threads = threads
         self.align_model_encoder = Encoder(align_model)
         self.align_model = align_model
         self.splitter = Splitter(split_model)
-        self.language_detector = LanguageDetectorBuilder.from_all_languages().build()
+        known = [l for l in (self.source_language, self.target_language) if l is not None]
+        if len(known) == 2:
+            self.language_detector = LanguageDetectorBuilder.from_languages(*known).build()
+        else:
+            self.language_detector = LanguageDetectorBuilder.from_all_languages().build()
         self.log = logging.getLogger(__name__)
+
+    @staticmethod
+    def _parse_language(code: str):
+        if not code:
+            return None
+        try:
+            return Language.from_iso_code_639_1(IsoCode639_1.from_str(code))
+        except ValueError:
+            return None
 
     def _detect_language(self, text, default_lang):
         if default_lang is not None:
@@ -110,17 +123,32 @@ class Aligner:
         final_rows = []
         unmatched_src_ptr = 0
         unmatched_tgt_ptr = 0
-        
-        for row in aligned_rows:
+
+        next_src_boundary = [float('inf')] * len(aligned_rows)
+        next_tgt_boundary = [float('inf')] * len(aligned_rows)
+        cur_src = float('inf')
+        cur_tgt = float('inf')
+        for i in range(len(aligned_rows) - 1, -1, -1):
+            next_src_boundary[i] = cur_src
+            next_tgt_boundary[i] = cur_tgt
+            if aligned_rows[i]['src_indices']:
+                cur_src = aligned_rows[i]['src_indices'][0]
+            if aligned_rows[i]['tgt_indices']:
+                cur_tgt = aligned_rows[i]['tgt_indices'][0]
+
+        for i, row in enumerate(aligned_rows):
+            row_src_first = row['src_indices'][0] if row['src_indices'] else next_src_boundary[i]
+            row_tgt_first = row['tgt_indices'][0] if row['tgt_indices'] else next_tgt_boundary[i]
+
             # Add any unmatched source sentences that come before this aligned row
             src_before = []
-            while unmatched_src_ptr < len(unmatched_src) and unmatched_src[unmatched_src_ptr] < row['src_indices'][0]:
+            while unmatched_src_ptr < len(unmatched_src) and unmatched_src[unmatched_src_ptr] < row_src_first:
                 src_before.append(unmatched_src[unmatched_src_ptr])
                 unmatched_src_ptr += 1
             
             # Add any unmatched target sentences that come before this aligned row
             tgt_before = []
-            while unmatched_tgt_ptr < len(unmatched_tgt) and unmatched_tgt[unmatched_tgt_ptr] < row['tgt_indices'][0]:
+            while unmatched_tgt_ptr < len(unmatched_tgt) and unmatched_tgt[unmatched_tgt_ptr] < row_tgt_first:
                 tgt_before.append(unmatched_tgt[unmatched_tgt_ptr])
                 unmatched_tgt_ptr += 1
             

@@ -79,7 +79,7 @@ class BBB:
         target_book = EpubFile(self.target_path)
         if not target_book:
             self.log.error(f"Failed to read target EPUB file {self.target_path}.")
-            return None
+            return
 
         source_extractor = Extractor(
             epub_file = source_book,

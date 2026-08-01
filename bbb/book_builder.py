@@ -1,9 +1,9 @@
 import os
 import uuid
 import re
+import posixpath
 from typing import List, Dict, Any, Optional
 from ebooklib import epub
-import ebooklib
 import logging
 
 from bs4 import BeautifulSoup, Tag
@@ -11,6 +11,9 @@ from bs4 import BeautifulSoup, Tag
 from bbb import progress
 from bbb.epub_file import EpubFile
 from bbb.constants import SRC_FN_PREFIX, TGT_FN_PREFIX
+
+BLOCK_INDENT_TAGS = {'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote',
+                     'li', 'section', 'article', 'header', 'footer', 'aside', 'main'}
 
 
 class BookBuilder:
@@ -37,6 +40,12 @@ class BookBuilder:
         href = item.file_name
         return os.path.dirname(href) + "/" if os.path.dirname(href) else ""
 
+    def _relative_href(self, file_name: str) -> str:
+        base_dir = self._get_base_dir()
+        if not base_dir:
+            return file_name
+        return posixpath.relpath(file_name, base_dir)
+
     def _copy_cover(self, new_book: epub.EpubBook) -> None:
         cover_id = None
         book = self.target_book if self.copy_target_cover else self.source_book
@@ -48,43 +57,6 @@ class BookBuilder:
         cover_item = book.get_item_with_id(cover_id) if cover_id else None
         if cover_item:
             new_book.set_cover(cover_item.file_name, cover_item.get_content())
-
-    def _copy_styles(self, new_book: epub.EpubBook) -> List[str]:
-        css_links = []
-        base_dir = self._get_base_dir()
-        
-        # Copy styles from source book
-        for item in self.source_book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
-            if item.file_name.endswith('.css'):
-                new_item = epub.EpubItem(
-                    uid=f"src_css_{item.file_name}",
-                    file_name=item.file_name,
-                    media_type='text/css',
-                    content=item.get_content()
-                )
-                new_book.add_item(new_item)
-                css_links.append(new_item.file_name)
-        
-        # Copy styles from target book (avoid duplicates)
-        target_css_files = set()
-        for item in self.target_book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
-            if item.file_name.endswith('.css'):
-                target_css_files.add(item.file_name)
-        
-        for css_file in target_css_files:
-            if css_file not in css_links:
-                item = self.target_book.get_item_with_href(css_file)
-                if item:
-                    new_item = epub.EpubItem(
-                        uid=f"tgt_css_{css_file}",
-                        file_name=css_file,
-                        media_type='text/css',
-                        content=item.get_content()
-                    )
-                    new_book.add_item(new_item)
-                    css_links.append(new_item.file_name)
-        
-        return css_links
 
     def _copy_metadata(self, new_book: epub.EpubBook):
         def get_metadata(book, key):
@@ -213,21 +185,15 @@ class BookBuilder:
 
     def _apply_indent_to_block(self, html_str: str) -> str:
         soup = BeautifulSoup(html_str, 'html.parser')
-        if not soup.contents:
-            # Handle plain text by wrapping in span
-            return f'<span style="text-indent: 2em !important">{html_str}</span>'
-        
         first_tag = soup.contents[0] if isinstance(soup.contents[0], Tag) else soup.find()
-        if first_tag and hasattr(first_tag, 'attrs'):
+        if first_tag is not None and first_tag.name in BLOCK_INDENT_TAGS:
             current_style = first_tag.get('style', '')
             parts = [s for s in current_style.split(';') if 'text-indent' not in s]
             clean_style = ';'.join(parts).strip().rstrip(';')
             new_style = (clean_style + '; ' if clean_style else '') + 'text-indent: 2em !important'
             first_tag['style'] = new_style
-            return str(soup) if soup else html_str
-        else:
-            # No tags found or first content is text node, wrap entire content in span
-            return f'<span style="text-indent: 2em !important">{html_str}</span>'
+            return str(soup)
+        return f'<span style="text-indent: 2em !important; display: block !important">{html_str}</span>'
 
     def _build_two_column_html(self, aligned_rows):
         rows = []
@@ -263,7 +229,7 @@ class BookBuilder:
         new_book = epub.EpubBook()
         self._copy_metadata(new_book)
         self._copy_cover(new_book)
-        css_links = self._copy_styles(new_book)
+        css_links = []
 
         base_dir = self._get_base_dir()
         generic_css = epub.EpubItem(
@@ -426,7 +392,7 @@ class BookBuilder:
                 item.title = flat_title
                 item.set_content(full_body)
                 for css_path in css_links:
-                    item.add_link(href=css_path, rel='stylesheet', type='text/css')
+                    item.add_link(href=self._relative_href(css_path), rel='stylesheet', type='text/css')
                 new_book.add_item(item)
 
                 new_spine_ids.append(item.get_id())

@@ -114,3 +114,44 @@ def test_heading_is_not_paragraph_start():
         # Heading sentence is not a paragraph start; the body paragraph is.
         assert result[0]['source_sents'][0]['first'] is False
         assert result[1]['source_sents'][0]['first'] is True
+
+
+def test_bertalign_reexports_work_together():
+    from bertalign import Bertalign
+    from bertalign.encoder import Encoder
+    from bertalign.corelib import second_back_track
+    from bertalign.utils import yield_overlaps
+    assert Bertalign is not None
+    assert Encoder is not None
+    assert callable(second_back_track)
+    assert list(yield_overlaps(["a", "b"], 2))
+
+
+def test_invalid_language_code_does_not_crash():
+    aligner = make_aligner(make_chapters(["Hello."]), make_chapters(["Hallo."]),
+                           source_lang="xx", target_lang="yy")
+    assert aligner.source_language is None
+    assert aligner.target_language is None
+
+
+def test_insertion_deletion_beads_do_not_crash():
+    aligner = make_aligner(make_chapters(["A. B. C. D. E."]),
+                           make_chapters(["A. X. C. D."]))
+    with patch.object(aligner.splitter, 'run', side_effect=lambda text, lang:
+        [["A.", "B.", "C.", "D.", "E."]] if lang == Language.ENGLISH
+        else [["A.", "X.", "C.", "D."]]), \
+         patch('bbb.aligner.Bertalign') as mock_bert:
+        mock_bert.return_value.result = [([0], [0]), ([], [1]), ([2], [2]), ([3], [3])]
+        mock_bert.return_value.align_sents = MagicMock()
+        result = aligner._align_pair("A. B. C. D. E.", "A. X. C. D.",
+                                     Language.ENGLISH, Language.GERMAN)
+        assert len(result) == 6
+        assert sent_text(result[0]['source_sents'][0]) == 'A.'
+        assert result[1]['target_sents'] == []
+        assert sent_text(result[1]['source_sents'][0]) == 'B.'
+        assert result[2]['source_sents'] == []
+        assert sent_text(result[2]['target_sents'][0]) == 'X.'
+        assert sent_text(result[3]['source_sents'][0]) == 'C.'
+        assert sent_text(result[4]['source_sents'][0]) == 'D.'
+        assert result[5]['target_sents'] == []
+        assert sent_text(result[5]['source_sents'][0]) == 'E.'

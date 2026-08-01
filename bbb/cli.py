@@ -25,8 +25,7 @@ def main() -> int:
     
     args = parser.parse_args()
     if args.only == 'auto-match' and args.manual:
-        parser.print_help()
-        return 0
+        parser.error('--only auto-match cannot be combined with --manual')
     
     _setup_logger(args.verbosity)
     
@@ -94,5 +93,8 @@ def _setup_logger(verbosity):
 
     level = _get_log_level(verbosity)
     for module in modules:
-        logging.getLogger(module).setLevel(level)
-        logging.getLogger(module).addHandler(handler)
+        logger = logging.getLogger(module)
+        for h in list(logger.handlers):
+            logger.removeHandler(h)
+        logger.setLevel(level)
+        logger.addHandler(handler)

@@ -13,8 +13,8 @@ Builds a parallel-text EPUB with sentences aligned side-by-side from two EPUBs o
 ## Commands
 
 - **Setup:** clone with `--recurse-submodules` (bertalign is a submodule — the `kerivin/bertalign` fork, not upstream); `python -m venv .venv`; `source .venv/bin/activate`; `pip install -r requirements.txt`. That installs `-e ./bertalign[gpu]` — change to `[cpu]` in `requirements.txt` if you have no GPU. Python `>=3.13` (`.python-version` = 3.14). First real run downloads models (LaBSE, sat-3l).
-- **Run tests:** `source .venv/bin/activate && cd /tmp && pytest /path/to/bilingual-book-builder/tests/ -v`. MUST run from a cwd *outside* the repo root (see Gotchas). No linter/formatter configured — follow existing code style. CI (`.github/workflows/test.yml`) runs the same suite on push/PR for Python 3.13 & 3.14.
-- **Run the app:** use the installed `bbb` console script (or `python -m bbb` from a cwd *outside* the repo root — it fails from the repo root, see Gotchas). `--only extract` / `--only auto-match` short-circuit before building the EPUB — use them to test extraction/chapter-matching. Full run writes `bilingual.epub` to project root (gitignored). For real books, ask the user where the EPUBs live; test only a few chapters (keep it under ~2 minutes).
+- **Run tests:** `source .venv/bin/activate && pytest tests/ -v`. Can be run from the repo root — the `bertalign/` submodule carries a compatibility shim (`bertalign/__init__.py`) so it resolves correctly even when the repo root is on `sys.path`. No linter/formatter configured — follow existing code style. CI (`.github/workflows/test.yml`) runs the same suite on push/PR for Python 3.13 & 3.14.
+- **Run the app:** use the installed `bbb` console script, or `python -m bbb` — both work from any directory, including the repo root. `--only extract` / `--only auto-match` short-circuit before building the EPUB — use them to test extraction/chapter-matching. Full run writes `bilingual.epub` to project root (gitignored). For real books, ask the user where the EPUBs live; test only a few chapters (keep it under ~2 minutes).
 - Inspect a book's TOC (when you need to compare with the extractor output): `epub-utils "path.epub" toc` (installed as a dependency).
 
 ## Architecture
@@ -34,4 +34,4 @@ Unit tests build EPUB fixtures in-memory via helpers in `tests/conftest.py` (`ma
 
 ## Gotchas
 
-- **Do NOT run `pytest` or `python -m bbb` from the repo root.** The checked-out `bertalign/` submodule dir has no top-level `__init__.py`, so when the repo root is on `sys.path` (i.e. cwd == repo root) Python resolves it as a namespace package that shadows the installed editable `bertalign` package → `ImportError: cannot import name 'Bertalign' from 'bertalign' (unknown location)`. Run tests from any other directory (e.g. `cd /tmp`). The installed `bbb` console script works from anywhere.
+- The `bertalign/` submodule is checked out at `bertalign/`, which normally would shadow the installed `bertalign` package when the repo root is on `sys.path` (cwd == repo root). The submodule root carries a shim `__init__.py` that re-exports the inner package and aliases its submodules, so `pytest` / `python -m bbb` work from the repo root. Keep the shim and the relative imports inside `bertalign/bertalign/*` in sync if you update the submodule.

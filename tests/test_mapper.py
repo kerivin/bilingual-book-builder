@@ -66,3 +66,21 @@ def test_empty_target(mock_model):
                     keep_unmatched_target_chapters=False)
     result = mapper.run_auto(mock_model, force_show=False, threshold=0.5)
     assert result == [(0, None)]
+
+
+def test_auto_match_uses_content_html():
+    model = MagicMock()
+    captured = []
+    def encode(texts, **kwargs):
+        captured.extend(texts)
+        return np.eye(len(texts), 2)
+    model.encode.side_effect = encode
+    src = [{"toc_path": ["Chapter One"], "content_html": "<p>alpha beta gamma</p>",
+            "preview": "alpha", "index": 0}]
+    tgt = [{"toc_path": ["Глава 1"], "content_html": "<p>alpha beta gamma</p>",
+            "preview": "alpha", "index": 0}]
+    mapper = Mapper(src, tgt, False, False)
+    result = mapper.run_auto(model, force_show=False, threshold=0.5)
+    assert result == [(0, 0)]
+    assert "alpha beta gamma" in captured[0]
+    assert "alpha beta gamma" in captured[1]

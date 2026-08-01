@@ -127,3 +127,16 @@ def test_only_extract(fs, mock_heavy_deps):
                   only='extract', verbosity='quiet')
         bbb.run()
     mock_write.assert_not_called()
+
+
+def test_invalid_epub_does_not_crash(fs, mock_heavy_deps):
+    fs.create_file("/fake/bad.epub", contents=b"this is not an epub")
+    tgt_bytes = make_epub_bytes([{"filename": "t.xhtml",
+                                  "content": create_chapter_html("T", LONG_TEXT)}])
+    tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
+    out_path = "/fake/out.epub"
+
+    bbb = BBB(source_path="/fake/bad.epub", target_path=tgt_path,
+              output=out_path, verbosity='quiet', simple_split=True)
+    bbb.run()
+    assert not fs.exists(out_path)
