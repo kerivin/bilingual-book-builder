@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Set, OrderedDict
 
-from bs4 import BeautifulSoup, NavigableString, Comment
+from bs4 import BeautifulSoup, Comment, NavigableString, ProcessingInstruction
 
 from bbb import progress, utils
 from bbb.epub_file import EpubFile
@@ -263,6 +263,8 @@ class Extractor:
             tag.decompose()
         for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
             comment.extract()
+        for pi in soup.find_all(string=lambda text: isinstance(text, ProcessingInstruction)):
+            pi.extract()
         if handle_footnotes:
             self._remove_footnotes(soup, full_href)
 

@@ -110,6 +110,22 @@ def test_paragraphs_preserved(fs):
     assert text.count("\n\n") == 1
 
 
+def test_processing_instructions_stripped(fs):
+    html = """<html><body>
+    <h2 id="h"><?pagebreak number="1"?><a id="p1"/>One</h2>
+    <p>Body <?pagebreak number="2"?><a id="p2"/>text.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "p.xhtml", "content": html}],
+                                 toc_entries=[("Ch One", "p.xhtml")])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    text = chapters[0]["content_html"]
+    assert "<?pagebreak" not in text
+    assert "pagebreak" not in text
+    assert "Body" in text and "text." in text
+
+
 def test_heading_with_styles(fs):
     html = """<html><body>
     <h1 class="chapter">Chapter I</h1>

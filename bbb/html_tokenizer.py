@@ -1,6 +1,6 @@
 import re
 from typing import List, Tuple, Set
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Comment, Declaration, Doctype, NavigableString, ProcessingInstruction, Tag
 
 from bbb.splitter import Splitter
 from lingua import Language
@@ -169,6 +169,9 @@ class HtmlSentenceTokenizer:
         return str(root_copy)
 
     def _collect_fragment(self, src_node, dest_parent, current_pos, start, end) -> int:
+        if isinstance(src_node, (Comment, ProcessingInstruction, Doctype, Declaration)):
+            return current_pos
+
         if isinstance(src_node, NavigableString):
             text = str(src_node)
             node_len = len(text)

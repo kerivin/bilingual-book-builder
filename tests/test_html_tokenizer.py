@@ -139,3 +139,31 @@ Second sentence of paragraph.</div>"""
     assert len(sents) == 2
     assert 0 in para_starts
     assert 1 not in para_starts
+
+
+def test_processing_instruction_in_heading(tokenizer):
+    html = '<h2 class="head" id="h"><?pagebreak number="1"?><a id="p1"/>One</h2>'
+    sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
+    assert len(sents) == 1
+    assert sents[0][0] == "One"
+    assert "pagebreak" not in sents[0][1].lower()
+    assert "One" in sents[0][1]
+
+
+def test_processing_instruction_in_paragraph(tokenizer):
+    html = ('<p>Immediately she told my mother in bad French '
+            '<?pagebreak number="8"?><a id="p8"/>a pointless and quite '
+            'irrelevant story about a Polish woman.</p>')
+    sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
+    assert len(sents) == 1
+    assert "pagebreak" not in sents[0][1].lower()
+    assert sents[0][0] == ("Immediately she told my mother in bad French "
+                           "a pointless and quite irrelevant story about a Polish woman.")
+
+
+def test_comment_not_in_fragment(tokenizer):
+    html = "<p>Hello <!--mid comment-->world.</p>"
+    sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
+    assert len(sents) == 1
+    assert sents[0][0] == "Hello world."
+    assert "comment" not in sents[0][1]
