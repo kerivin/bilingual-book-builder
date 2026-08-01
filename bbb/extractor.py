@@ -1,5 +1,6 @@
 import re
 import html
+import posixpath
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Set, OrderedDict
@@ -55,6 +56,7 @@ class Extractor:
         self._build_spine_info()
 
         self.footnotes: Dict[str, str] = {}
+        self._footnote_files: Dict[str, str] = {}
         self._current_footnote_refs: List[Dict[str, str]] = []
 
     def get_chapter_list(self) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
@@ -97,6 +99,7 @@ class Extractor:
     def _build_global_footnote_map(self) -> Dict[str, str]:
         footnote_bodies = {}
         candidate_ids: Set[str] = set()
+        candidate_targets: Dict[str, str] = {}
         title_fallbacks: Dict[str, str] = {}
 
         manifest = self.doc.package.manifest
@@ -117,15 +120,24 @@ class Extractor:
                 text = a_tag.get_text(strip=True)
                 if has_sup or FN_MARKER_RE.fullmatch(text):
                     candidate_ids.add(fragment)
+                    href_base = a_tag['href'].split('#', 1)[0]
+                    candidate_targets[fragment] = self._resolve_relative_href(full_href, href_base)
+                    self._footnote_files[fragment] = full_href
                     title = a_tag.get('title', '').strip()
                     if title:
                         title_fallbacks[fragment] = title
 
-        for full_href in xhtml_hrefs:
+        preferred_hrefs = set(candidate_targets.values())
+        scan_order = [h for h in xhtml_hrefs if h in preferred_hrefs]
+        scan_order += [h for h in xhtml_hrefs if h not in preferred_hrefs]
+
+        for full_href in scan_order:
             soup = self._load_soup(full_href)
             if not soup:
                 continue
             for fid in list(candidate_ids):
+                if candidate_targets.get(fid) != full_href:
+                    continue
                 elem = soup.find(id=fid)
                 if not elem:
                     continue
@@ -139,6 +151,7 @@ class Extractor:
                     footnote_bodies[fid] = ''.join(body_parts)
                 else:
                     footnote_bodies[fid] = ''.join(str(c) for c in elem.contents)
+                self._footnote_files[fid] = full_href
                 candidate_ids.remove(fid)
 
         for fid in candidate_ids:
@@ -173,6 +186,13 @@ class Extractor:
         if href.startswith('/'):
             return href.lstrip('/')
         return f"{self._opf_base}{href}"
+
+    def _resolve_relative_href(self, from_full_href: str, href: str) -> str:
+        if not href:
+            return from_full_href
+        if href.startswith('/'):
+            return href.lstrip('/')
+        return posixpath.normpath(posixpath.join(posixpath.dirname(from_full_href), href))
 
     def _find_guide_skip_indices(self) -> set:
         skip_indices = set()
@@ -237,13 +257,14 @@ class Extractor:
         except (ValueError, AttributeError, KeyError):
             return None
 
-    def _clean_soup(self, soup: BeautifulSoup, handle_footnotes: bool = True) -> None:
+    def _clean_soup(self, soup: BeautifulSoup, handle_footnotes: bool = True,
+                    full_href: Optional[str] = None) -> None:
         for tag in soup(TAG_BLACKLIST):
             tag.decompose()
         for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
             comment.extract()
         if handle_footnotes:
-            self._remove_footnotes(soup)
+            self._remove_footnotes(soup, full_href)
 
     def _is_footnote_reference(self, a_tag):
         href = a_tag.get('href', '')
@@ -258,10 +279,12 @@ class Extractor:
             return True, fragment
         return False, None
 
-    def _remove_footnotes(self, soup: BeautifulSoup) -> None:
+    def _remove_footnotes(self, soup: BeautifulSoup, full_href: Optional[str] = None) -> None:
         self._current_footnote_refs = []
 
         for fid in self.footnotes:
+            if self._footnote_files.get(fid) != full_href:
+                continue
             elem = soup.find(id=fid)
             if elem:
                 elem.decompose()
@@ -374,7 +397,7 @@ class Extractor:
             if not soup or self._is_skippable_frontbackmatter(soup):
                 continue
 
-            self._clean_soup(soup, handle_footnotes=True)
+            self._clean_soup(soup, handle_footnotes=True, full_href=full_href)
             body_class = ' '.join(soup.body.get('class', [])) if soup.body else ''
 
             parent_entry = None

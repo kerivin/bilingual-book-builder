@@ -356,3 +356,36 @@ def test_footnote_title_fallback(fs):
     _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
     assert "missing" in fn_map
     assert fn_map["missing"] == "Fallback note"
+
+
+def test_footnote_id_collides_with_chapter_anchor(fs):
+    """Footnote bodies in a separate file whose ids collide with chapter anchor
+    ids must not drop whole chapters. Regression: footnote-id cleanup used to
+    decompose the chapter's anchor element (e.g. <span id="id1">) in every file."""
+    ch1 = """<html><body>
+    <span id="id1"><div class="title1"><p class="p1">Chapter One</p></div>
+    <p>Text<a href="notes.xhtml#id1"><sup>1</sup></a> end.</p></span>
+    </body></html>"""
+    ch2 = """<html><body>
+    <span id="id2"><div class="title1"><p class="p1">Chapter Two</p></div>
+    <p>Text<a href="notes.xhtml#id2"><sup>2</sup></a> end.</p></span>
+    </body></html>"""
+    notes = """<html><body>
+    <p id="id1">Note one.</p>
+    <p id="id2">Note two.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes(
+        [{"filename": "ch1.xhtml", "content": ch1},
+         {"filename": "ch2.xhtml", "content": ch2},
+         {"filename": "notes.xhtml", "content": notes}],
+        toc_entries=[("Ch One", "ch1.xhtml"), ("Ch Two", "ch2.xhtml")]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert len(chapters) == 2
+    assert [c["toc_path"][-1] for c in chapters] == ["Ch One", "Ch Two"]
+    assert "Note one" in fn_map["id1"]
+    assert "Note two" in fn_map["id2"]
+    for ch in chapters:
+        assert "Text" in ch["content_html"]
