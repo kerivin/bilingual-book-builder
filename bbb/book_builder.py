@@ -173,12 +173,30 @@ class BookBuilder:
         processed = token_pattern.sub(replacer, text)
         return processed, footnote_items
 
+    def _append_backref(self, body: str, ref_id: str) -> str:
+        backref = BeautifulSoup(
+            f'<a href="#{ref_id}" class="footnote-backref">↩</a>',
+            'html.parser'
+        ).a
+        soup = BeautifulSoup(body, 'html.parser')
+        leaf = None
+        for tag in soup.find_all(True):
+            if tag.get_text(strip=True):
+                leaf = tag
+        target = soup
+        if leaf is not None:
+            target = leaf
+            while target.name not in BLOCK_INDENT_TAGS and target.parent is not None:
+                target = target.parent
+        target.append(' ')
+        target.append(backref)
+        return str(soup)
+
     def _build_footnote_list(self, footnote_items: list) -> str:
         if not footnote_items:
             return ''
         items = ''.join(
-            f'<li id="{fn["id"]}">{fn["body"]} '
-            f'<a href="#{fn["ref_id"]}" class="footnote-backref">↩</a></li>'
+            f'<li id="{fn["id"]}">{self._append_backref(fn["body"], fn["ref_id"])}</li>'
             for fn in footnote_items
         )
         return f'<hr class="footnote-separator"/><div class="footnotes"><ol>{items}</ol></div>'
@@ -374,7 +392,14 @@ class BookBuilder:
                 )
                 footnotes_html = self._build_footnote_list(footnote_items)
 
-                full_body = body_content + '\n' + footnotes_html
+                if footnotes_html:
+                    close_body = body_content.rfind('</body>')
+                    if close_body != -1:
+                        full_body = body_content[:close_body] + footnotes_html + body_content[close_body:]
+                    else:
+                        full_body = body_content + '\n' + footnotes_html
+                else:
+                    full_body = body_content
 
                 toc_path = []
                 if target:

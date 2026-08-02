@@ -145,7 +145,9 @@ class Extractor:
                         body_parts.append(str(sibling))
                     footnote_bodies[fid] = ''.join(body_parts)
                 else:
-                    footnote_bodies[fid] = ''.join(str(c) for c in elem.contents)
+                    footnote_bodies[fid] = ''.join(
+                        str(c) for c in self._strip_leading_marker(elem.contents)
+                    )
                 self._footnote_files[fid] = full_href
                 candidate_ids.remove(fid)
 
@@ -165,6 +167,25 @@ class Extractor:
             footnote_bodies[fid] = str(body_soup)
 
         return footnote_bodies
+
+    def _strip_leading_marker(self, contents) -> list:
+        parts = list(contents)
+        while parts:
+            node = parts[0]
+            if isinstance(node, NavigableString):
+                text = node.strip()
+                if not text:
+                    parts.pop(0)
+                    continue
+                if FN_MARKER_RE.fullmatch(text):
+                    parts.pop(0)
+                    continue
+                break
+            if hasattr(node, 'name') and FN_MARKER_RE.fullmatch(node.get_text(strip=True)):
+                parts.pop(0)
+                continue
+            break
+        return parts or list(contents)
 
     def _build_spine_info(self) -> None:
         manifest_items = {item['id']: item['href'] for item in self.doc.package.manifest.items}

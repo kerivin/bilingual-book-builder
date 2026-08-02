@@ -345,6 +345,39 @@ def test_footnote_body_multi_paragraph(fs):
     assert "Para2." in note
 
 
+def test_footnote_body_strips_embedded_marker(fs):
+    """Footnote element that embeds its own number marker must drop it –
+    the output <ol> already numbers each item (regression: '1. 1. …')."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Text<a href="#fn1"><sup>1</sup></a> end.</p>
+    <div id="fn1"><div><p>1</p></div><p>Body of the note.</p></div>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    note = fn_map["fn1"]
+    assert "<p>Body of the note.</p>" in note
+    assert ">1</" not in note
+
+
+def test_footnote_body_strips_embedded_marker_text(fs):
+    """A leading bare-number text node inside the footnote element is a marker."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Text<a href="#fn1"><sup>1</sup></a> end.</p>
+    <div id="fn1">1<p>Body of the note.</p></div>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    note = fn_map["fn1"]
+    assert "<p>Body of the note.</p>" in note
+    assert "1<p>" not in note
+
+
 def test_footnote_refs_list_in_chapter(fs):
     """Header fallback does NOT add footnote_refs to chapters."""
     html = """<html><body>

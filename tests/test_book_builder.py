@@ -1,5 +1,6 @@
 import pytest
 import ebooklib
+from bs4 import BeautifulSoup
 from bbb.epub_file import EpubFile
 from bbb.book_builder import BookBuilder
 from conftest import make_epub_bytes, create_chapter_html, write_epub_to_fake
@@ -116,6 +117,70 @@ def test_footnotes_in_output(fs):
     assert "Source footnote" in body
     assert "Target footnote" in body
     assert 'class="footnotes"' in body
+
+
+def test_footnote_backref_inline_with_text(fs):
+    """Back-arrow is placed inline inside the last text block of the footnote
+    so it cannot be pushed onto a different page from the note text."""
+    src_file, tgt_file = build_epub_files(fs)
+    block = {
+        "source": {"toc_path": ["S"], "content_html": "", "index": 0,
+                   "footnote_placeholders": [{"token": "S_FNREF_1", "target_id": "fn1"}]},
+        "target": {"toc_path": ["T"], "content_html": "", "index": 0,
+                   "footnote_placeholders": []},
+        "alignment": [{"source_sents": [{"html": "<p>Text S_FNREF_1</p>", "first": False}],
+                         "target_sents": [{"html": "<p>Text</p>", "first": False}]}]
+    }
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[block],
+                     source_footnotes={"fn1": "<p>Body of note.</p>"})
+    new_book = bb.run()
+    body = '\n'.join(chapter_bodies(new_book))
+    assert 'id="fn_1"' in body
+    soup = BeautifulSoup(body, 'html.parser')
+    li = soup.find('li', id='fn_1')
+    backref = li.find('a', class_='footnote-backref')
+    assert backref.parent.name == 'p'
+    assert backref.parent.get_text() == 'Body of note. ↩'
+
+
+def test_footnote_backref_inline_plain_body(fs):
+    """A footnote body with no markup still gets the inline back-arrow."""
+    src_file, tgt_file = build_epub_files(fs)
+    block = {
+        "source": {"toc_path": ["S"], "content_html": "", "index": 0,
+                   "footnote_placeholders": [{"token": "S_FNREF_1", "target_id": "fn1"}]},
+        "target": {"toc_path": ["T"], "content_html": "", "index": 0,
+                   "footnote_placeholders": []},
+        "alignment": [{"source_sents": [{"html": "<p>Text S_FNREF_1</p>", "first": False}],
+                         "target_sents": [{"html": "<p>Text</p>", "first": False}]}]
+    }
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[block],
+                     source_footnotes={"fn1": "Plain note."})
+    new_book = bb.run()
+    body = '\n'.join(chapter_bodies(new_book))
+    assert 'id="fn_1"' in body
+    assert 'Plain note. <a' in body
+    assert '↩</a></li>' in body
+
+
+def test_footnotes_in_body_wrapped_content(fs):
+    """Whole-file chapters carry a <body>…</body> wrapper in content_html;
+    the footnote list must go inside the body or ebooklib drops it."""
+    src_file, tgt_file = build_epub_files(fs)
+    block = {
+        "source": None,
+        "target": {"toc_path": ["T"], "index": 0,
+                   "content_html": '<body><p>Text T_FNREF_1.</p></body>',
+                   "footnote_placeholders": [{"token": "T_FNREF_1", "target_id": "fn1"}]},
+        "alignment": []
+    }
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[block],
+                     target_footnotes={"fn1": "<p>Note body.</p>"})
+    new_book = bb.run()
+    body = '\n'.join(chapter_bodies(new_book))
+    assert 'id="fn_1"' in body
+    assert 'Note body.' in body
+    assert 'footnote-separator' in body
 
 
 def test_styles_not_copied(fs):
