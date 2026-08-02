@@ -184,7 +184,7 @@ def test_footnote_numeric_without_sup(fs):
     path = write_epub_to_fake(fs, epub_bytes)
     epub_file = EpubFile(path)
     chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
-    assert fn_map.get("fn1") == "Note 1."
+    assert "fn1" not in fn_map
     text = chapters[0]["content_html"]
     assert "S_FNREF_1" not in text
     assert "Text\n1\nend." in text
@@ -405,3 +405,122 @@ def test_footnote_id_collides_with_chapter_anchor(fs):
     assert "Note two" in fn_map["id2"]
     for ch in chapters:
         assert "Text" in ch["content_html"]
+
+
+def test_calibre_toc_page_links_not_footnotes(fs):
+    """Calibre TOC pages link to chapter anchors with bare-number text
+    (e.g. <a href="ch2.xhtml#filepos123">1</a>). These are navigation, not
+    footnote references; they must never decompose the chapter body.
+    Regression: this dropped whole chapters, leaving only non-numeric TOC
+    entries (Dedication/Epigraph/About the Author)."""
+    toc_page = """<html><body>
+    <p><a href="ch1.xhtml#filepos100">1</a></p>
+    <p><a href="ch2.xhtml#filepos200">2</a></p>
+    <p><a href="ch3.xhtml#filepos300">3</a></p>
+    <p><a href="ch4.xhtml#filepos400">4</a></p>
+    <p><a href="ch5.xhtml#filepos500">5</a></p>
+    </body></html>"""
+    chapters_html = []
+    for i in range(1, 6):
+        chapters_html.append(
+            {"filename": f"ch{i}.xhtml",
+             "content": f"""<html><body>
+             <div id="filepos{i}00"><h1>Chapter {i}</h1>
+             <p>This is the real body of chapter {i} and it must survive.</p></div>
+             </body></html>"""}
+        )
+    epub_bytes = make_epub_bytes(
+        [{"filename": "toc.xhtml", "content": toc_page}] + chapters_html,
+        toc_entries=[(f"Ch {i}", f"ch{i}.xhtml") for i in range(1, 6)]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert len(chapters) == 5
+    assert len(fn_map) == 0
+    for i in range(1, 6):
+        assert f"This is the real body of chapter {i}" in chapters[i - 1]["content_html"]
+
+
+def test_standalone_bare_number_toc_links_not_footnotes(fs):
+    """Same-file bare-number links that stand alone in a list item are
+    navigation (an in-file table of contents), not footnotes."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <ul>
+    <li><a href="#filepos1">1</a></li>
+    <li><a href="#filepos2">2</a></li>
+    </ul>
+    <p id="filepos1">Body one.</p>
+    <p id="filepos2">Body two.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert len(fn_map) == 0
+    text = chapters[0]["content_html"]
+    assert "Body one." in text
+    assert "Body two." in text
+
+
+def test_inline_bare_number_cross_ref_not_footnote(fs):
+    """A bare-number link inline within a paragraph is a cross-reference, not a
+    footnote. Its target is real content and must survive extraction.
+    Regression: classifying these as footnotes decomposed the target block and
+    silently dropped it from the chapter."""
+    ch1 = """<html><body>
+    <h1>Chapter One</h1>
+    <p>For details see <a href="#sec">12</a>.</p>
+    <div id="sec"><p>Important section text that a cross-reference must not delete.</p></div>
+    </body></html>"""
+    ch2 = "<html><body><h1>Chapter Two</h1><p>More text.</p></body></html>"
+    epub_bytes = make_epub_bytes(
+        [{"filename": "ch1.xhtml", "content": ch1},
+         {"filename": "ch2.xhtml", "content": ch2}],
+        toc_entries=[("One", "ch1.xhtml"), ("Two", "ch2.xhtml")]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert len(fn_map) == 0
+    assert "S_FNREF_" not in chapters[0]["content_html"]
+    assert "Important section text that a cross-reference must not delete." in chapters[0]["content_html"]
+
+
+def test_footnote_epub3_noteref_cross_file(fs):
+    """EPUB3 footnote references carry epub:type='noteref' and may use a bare
+    number marker without <sup>; they must still be detected."""
+    ch_html = """<html><body>
+    <h1>Chapter</h1>
+    <p>Text<a href="notes.xhtml#n1" epub:type="noteref">1</a> end.</p>
+    </body></html>"""
+    notes_html = """<html><body>
+    <p id="n1">EPUB3 note body.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([
+        {"filename": "chapter.xhtml", "content": ch_html},
+        {"filename": "notes.xhtml", "content": notes_html}
+    ])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    assert fn_map.get("n1") == "EPUB3 note body."
+
+
+def test_long_footnote_preserved(fs):
+    """Footnote bodies have no size cap; a long note survives in full."""
+    words = " ".join(f"word{i}" for i in range(500))
+    html = f"""<html><body>
+    <h1>Ch</h1>
+    <p>Text<a href="#fn1"><sup>1</sup></a></p>
+    <p id="fn1">{words}</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
+    note = fn_map["fn1"]
+    assert "word0" in note
+    assert "word499" in note
+    assert len(note.split()) == 500

@@ -111,21 +111,16 @@ class Extractor:
             if not soup:
                 continue
             for a_tag in soup.find_all('a', href=True):
-                if '#' not in a_tag['href']:
+                is_fn, fragment = self._is_footnote_reference(a_tag)
+                if not is_fn:
                     continue
-                fragment = a_tag['href'].split('#', 1)[1]
-                if not fragment:
-                    continue
-                has_sup = a_tag.find_parent('sup') or a_tag.find('sup')
-                text = a_tag.get_text(strip=True)
-                if has_sup or FN_MARKER_RE.fullmatch(text):
-                    candidate_ids.add(fragment)
-                    href_base = a_tag['href'].split('#', 1)[0]
-                    candidate_targets[fragment] = self._resolve_relative_href(full_href, href_base)
-                    self._footnote_files[fragment] = full_href
-                    title = a_tag.get('title', '').strip()
-                    if title:
-                        title_fallbacks[fragment] = title
+                candidate_ids.add(fragment)
+                href_base = a_tag['href'].split('#', 1)[0]
+                candidate_targets[fragment] = self._resolve_relative_href(full_href, href_base)
+                self._footnote_files[fragment] = full_href
+                title = a_tag.get('title', '').strip()
+                if title:
+                    title_fallbacks[fragment] = title
 
         preferred_hrefs = set(candidate_targets.values())
         scan_order = [h for h in xhtml_hrefs if h in preferred_hrefs]
@@ -270,6 +265,15 @@ class Extractor:
         if handle_footnotes:
             self._remove_footnotes(soup, full_href)
 
+    def _is_note_epubtype(self, a_tag) -> bool:
+        for node in (a_tag, *a_tag.parents):
+            etype = node.get('epub:type', '')
+            if isinstance(etype, str) and any(
+                t in etype.split() for t in ('noteref', 'footnote')
+            ):
+                return True
+        return False
+
     def _is_footnote_reference(self, a_tag):
         href = a_tag.get('href', '')
         if '#' not in href:
@@ -277,11 +281,14 @@ class Extractor:
         fragment = href.split('#', 1)[1]
         if not fragment:
             return False, None
-        has_sup = a_tag.find_parent('sup') is not None or a_tag.find('sup') is not None
-        text = a_tag.get_text(strip=True)
-        if has_sup or FN_MARKER_RE.fullmatch(text):
+        if self._is_note_epubtype(a_tag):
             return True, fragment
-        return False, None
+        if a_tag.find_parent('sup') or a_tag.find('sup'):
+            return True, fragment
+        text = a_tag.get_text(strip=True)
+        if not FN_MARKER_RE.fullmatch(text) or text.isdigit():
+            return False, None
+        return True, fragment
 
     def _remove_footnotes(self, soup: BeautifulSoup, full_href: Optional[str] = None) -> None:
         self._current_footnote_refs = []
