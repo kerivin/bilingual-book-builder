@@ -44,7 +44,8 @@ def test_two_column_html_indents_paragraph_starts():
                   "target_sents": [{"html": "<p>C</p>", "first": False}]}]
     html = bb._build_two_column_html(aligned)
     # Only the paragraph-start sentence gets the indent style
-    assert html.count('text-indent: 2em !important') == 1
+    assert html.count('bl-p-start') == 1
+    assert 'style=' not in html
     assert 'class="bilingual-table"' in html
 
 
@@ -217,11 +218,11 @@ def test_indent_wraps_inline_fragment():
     bb = BookBuilder.__new__(BookBuilder)
     wrapped = bb._apply_indent_to_block('<i>Italic sentence.</i>')
     assert wrapped.startswith('<span')
-    assert 'display: block' in wrapped
-    assert 'text-indent: 2em' in wrapped
+    assert 'bl-p-start' in wrapped
+    assert 'bl-block' in wrapped
     block = bb._apply_indent_to_block('<p>Sentence.</p>')
     assert '<p' in block
-    assert 'text-indent: 2em' in block
+    assert 'class="bl-p-start"' in block
 
 
 def test_epub_file_rejects_garbage(fs):
