@@ -28,6 +28,7 @@ class HtmlSentenceTokenizer:
             root = soup.contents[0]
 
         self._replace_br_with_placeholder(root)
+        self._join_soft_wrapped_lines(root)
 
         # Find all block elements in the document
         body = root.body if hasattr(root, 'body') and root.body else root
@@ -125,6 +126,18 @@ class HtmlSentenceTokenizer:
     def _replace_br_with_placeholder(self, root: Tag) -> None:
         for br in root.find_all('br'):
             br.replace_with(NavigableString(BR_PLACEHOLDER))
+
+    def _join_soft_wrapped_lines(self, root: Tag) -> None:
+        for text_node in root.find_all(string=True):
+            text = str(text_node)
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            hyphenated_break = re.search(r'\w-\s*\n\s*\w', text)
+            long_wrapped_lines = len(lines) >= 3 and sum(len(line) >= 40 for line in lines) >= len(lines) - 1
+            if not hyphenated_break and not long_wrapped_lines:
+                continue
+            text = re.sub(r'(\w)-\s*\n\s*(\w)', r'\1\2', text)
+            text = re.sub(r'\s*\n\s*', ' ', text)
+            text_node.replace_with(NavigableString(text))
 
     def _normalize_and_map(self, raw_text: str) -> Tuple[str, List[int]]:
         norm_parts = []

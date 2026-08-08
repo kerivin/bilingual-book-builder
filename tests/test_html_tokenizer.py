@@ -141,6 +141,34 @@ Second sentence of paragraph.</div>"""
     assert 1 not in para_starts
 
 
+def test_soft_wrapped_lines_are_joined(tokenizer):
+    html = ("<p>They could not understand the conduct of this\n"
+            "rustic fiddler, who tramped the roads with that\n"
+            "pretty child who sang like an angel from Heaven.\n"
+            "A second sentence.</p>")
+    sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
+    assert [sent[0] for sent in sents] == [
+        "They could not understand the conduct of this rustic fiddler, who tramped the roads with that pretty child who sang like an angel from Heaven.",
+        "A second sentence.",
+    ]
+    assert 0 in para_starts
+
+
+def test_hyphenated_soft_wrapped_words_are_joined(tokenizer):
+    html = ("<p>This is a sufficiently long line to identify the source as\n"
+            "print-wrapped text with a rus-\n"
+            "tic fiddler who tramped the roads.</p>")
+    sents, _ = tokenizer.extract(html, Language.ENGLISH)
+    assert sents[0][0] == "This is a sufficiently long line to identify the source as print-wrapped text with a rustic fiddler who tramped the roads."
+    assert "rus-" not in sents[0][1]
+
+
+def test_newline_separated_sentences_remain_split(tokenizer):
+    html = "<p>First sentence.\nSecond sentence.</p>"
+    sents, _ = tokenizer.extract(html, Language.ENGLISH)
+    assert [sent[0] for sent in sents] == ["First sentence.", "Second sentence."]
+
+
 def test_processing_instruction_in_heading(tokenizer):
     html = '<h2 class="head" id="h"><?pagebreak number="1"?><a id="p1"/>One</h2>'
     sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
