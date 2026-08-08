@@ -59,6 +59,22 @@ python -m bbb --help
 
 </details>
 
+<details>
+<summary>AMD ROCm support</summary>
+
+```sh
+# Install ROCm Torch
+source .venv/bin/activate
+pip install --upgrade pip
+pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/rocm7.0
+
+# For running it
+export HSA_OVERRIDE_GFX_VERSION=10.3.0 # Sample value for RX 6700 XT, only relevant for GPUs that require an override.
+export LD_LIBRARY_PATH=/opt/rocm/core-7.14/lib:$LD_LIBRARY_PATH
+```
+
+</details>
+
 ## Options
 
 | Command | Description
