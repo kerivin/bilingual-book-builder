@@ -132,6 +132,7 @@ class HtmlSentenceTokenizer:
             text = str(text_node)
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             hyphenated_break = re.search(r'\w-\s*\n\s*\w', text)
+            # Avoid joining short lines.
             long_wrapped_lines = len(lines) >= 3 and sum(len(line) >= 40 for line in lines) >= len(lines) - 1
             if not hyphenated_break and not long_wrapped_lines:
                 continue
