@@ -7,6 +7,7 @@ name = "bbb"
 version = "0.2"
 description = "Bilingual Book Builder"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.13"
 dependencies = [
     "ebooklib>=0.20",
@@ -29,3 +30,6 @@ bbb = "bbb.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["bbb*"]
+
+[tool.setuptools]
+license-files = ["LICENSE"]
