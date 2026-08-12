@@ -57,6 +57,11 @@ pip install -r requirements.txt
 python -m bbb --help
 ```
 
+Run tests locally:
+```
+pytest tests/ -v
+```
+
 </details>
 
 <details>
