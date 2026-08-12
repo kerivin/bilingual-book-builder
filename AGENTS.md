@@ -5,7 +5,7 @@ Builds a parallel-text EPUB with sentences aligned side-by-side from two EPUBs o
 - No book-specific code or special-casing of custom classes; must work on any valid EPUB.
 - Never hardcode any language-specific details. It must be language-agnostic.
 - Alignment is always at sentence level — never align whole paragraphs.
-- Sentences split by newlines in the original must be pre-split before the external splitter runs: they are effectively different sentences.
+- Sentences split by newlines in the original must be pre-split before the external splitter runs: they are generally different sentences. One exception: soft line-wraps are joined first — a text node that looks like wrapped print gets its newlines collapsed to spaces before splitting, so wrapped prose isn't chopped into pseudo-sentences.
 - The first sentence of each logical paragraph (rendered reading paragraph, not `<p>`) gets indentation, regardless of whether it lands as the first, last, or middle row of the table.
 - Don't special-case chapter structure (e.g. don't extract chapter titles from the chapter body); let the original HTML/CSS handle headings, italics, etc.
 - Unmatched sentences are still displayed: one-sided unmatches get a regular row with one empty column; both-sided unmatches share one row; keep reading order from the original files.
@@ -37,5 +37,6 @@ Unit tests build EPUB fixtures in-memory via helpers in `tests/conftest.py` (`ma
 ## Gotchas
 
 - **Never copy or `<link>` the source/target books' CSS into the output.** Only the built-in `generic.css` (the aggressive reset) is linked. Original stylesheets can hide translated text — calibre EPUBs ship `display: none` rules (e.g. `.calibre1` for screen-reader duplicates) that make the bilingual column silently empty — or break the table. A `_copy_styles` helper that did this was removed; don't reintroduce it.
+- Paragraph-start indentation is class-based: `_apply_indent_to_block` adds `bl-p-start` (and `bl-block` for inline fragments), styled in the built-in `generic.css` scoped to `.bilingual-left` / `.bilingual-right`.
 - The extractor's chapter dicts have **no `full_text` key**. The mapper builds auto-match signatures from `content_html` text; if it falls back to title-only the auto-match collapses to a handful of pairs. Don't "simplify" the signature lookup.
 - The `bertalign/` submodule is checked out at `bertalign/`, which normally would shadow the installed `bertalign` package when the repo root is on `sys.path` (cwd == repo root). The submodule root carries a shim `__init__.py` that re-exports the inner package and aliases its submodules, so `pytest` / `python -m bbb` work from the repo root. Keep the shim and the relative imports inside `bertalign/bertalign/*` in sync if you update the submodule.
