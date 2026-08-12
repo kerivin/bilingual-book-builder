@@ -205,13 +205,11 @@ class BookBuilder:
         soup = BeautifulSoup(html_str, 'html.parser')
         first_tag = soup.contents[0] if isinstance(soup.contents[0], Tag) else soup.find()
         if first_tag is not None and first_tag.name in BLOCK_INDENT_TAGS:
-            current_style = first_tag.get('style', '')
-            parts = [s for s in current_style.split(';') if 'text-indent' not in s]
-            clean_style = ';'.join(parts).strip().rstrip(';')
-            new_style = (clean_style + '; ' if clean_style else '') + 'text-indent: 2em !important'
-            first_tag['style'] = new_style
+            classes = first_tag.get('class', [])
+            if 'bl-p-start' not in classes:
+                first_tag['class'] = [*classes, 'bl-p-start']
             return str(soup)
-        return f'<span style="text-indent: 2em !important; display: block !important">{html_str}</span>'
+        return f'<span class="bl-p-start bl-block">{html_str}</span>'
 
     def _build_two_column_html(self, aligned_rows):
         rows = []
@@ -331,6 +329,14 @@ class BookBuilder:
                 max-height: none !important;
                 min-height: 0 !important;
                 box-sizing: content-box !important;
+            }
+
+            .bilingual-left .bl-p-start,
+            .bilingual-right .bl-p-start {
+                text-indent: 2em !important;
+            }
+            .bl-block {
+                display: block !important;
             }
 
             .footnote-ref {
