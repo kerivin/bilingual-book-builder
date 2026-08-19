@@ -128,17 +128,28 @@ class HtmlSentenceTokenizer:
             br.replace_with(NavigableString(BR_PLACEHOLDER))
 
     def _join_soft_wrapped_lines(self, root: Tag) -> None:
-        for text_node in root.find_all(string=True):
-            text = str(text_node)
+        def _looks_wrapped(text: str) -> bool:
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             hyphenated_break = re.search(r'\w-\s*\n\s*\w', text)
             # Avoid joining short lines.
             long_wrapped_lines = len(lines) >= 3 and sum(len(line) >= 40 for line in lines) >= len(lines) - 1
-            if not hyphenated_break and not long_wrapped_lines:
-                continue
-            text = re.sub(r'(\w)-\s*\n\s*(\w)', r'\1\2', text)
-            text = re.sub(r'\s*\n\s*', ' ', text)
-            text_node.replace_with(NavigableString(text))
+            return bool(hyphenated_break) or bool(long_wrapped_lines)
+
+        blocks = [block for block in root.find_all(BLOCK_TAGS)
+                  if not any(isinstance(child, Tag) and child.name in BLOCK_TAGS for child in block.children)]
+        if not blocks:
+            blocks = [root]
+
+        for block in blocks:
+            block_wrapped = _looks_wrapped(block.get_text())
+            for text_node in block.find_all(string=True):
+                text = str(text_node)
+                if not (block_wrapped or _looks_wrapped(text)):
+                    continue
+                text = re.sub(r'(\w)-\s*\n\s*(\w)', r'\1\2', text)
+                text = re.sub(r'\s*\n\s*', ' ', text)
+                if text != str(text_node):
+                    text_node.replace_with(NavigableString(text))
 
     def _normalize_and_map(self, raw_text: str) -> Tuple[str, List[int]]:
         norm_parts = []

@@ -169,6 +169,21 @@ def test_newline_separated_sentences_remain_split(tokenizer):
     assert [sent[0] for sent in sents] == ["First sentence.", "Second sentence."]
 
 
+def test_soft_wrapped_paragraph_split_by_inline_tag_is_joined(tokenizer):
+    html = ("<p>This is a sufficiently long wrapped line that fills the entire width of the printed page for the paragraph\n"
+            "and here is another long wrapped line that also fills the whole width of the printed page completely\n"
+            "with a final long line that continues until it reaches the end of the printed block of <i>text</i>, and\n"
+            "ends with a short tail.</p>")
+    sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
+    assert len(sents) == 1
+    assert sents[0][0] == ("This is a sufficiently long wrapped line that fills the entire width of the printed page "
+                           "for the paragraph and here is another long wrapped line that also fills the whole width "
+                           "of the printed page completely with a final long line that continues until it reaches "
+                           "the end of the printed block of text, and ends with a short tail.")
+    assert "\n" not in sents[0][1]
+    assert 0 in para_starts
+
+
 def test_processing_instruction_in_heading(tokenizer):
     html = '<h2 class="head" id="h"><?pagebreak number="1"?><a id="p1"/>One</h2>'
     sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
