@@ -93,8 +93,8 @@ export LD_LIBRARY_PATH=/opt/rocm/core-7.14/lib:$LD_LIBRARY_PATH
 | `--threads THREADS` | Number of parallel threads.<br>Default: 1
 | `--auto-threshold THRESHOLD` | Similarity threshold value (0.0-1.0) for chapter auto-matching.<br>Default: 0.6
 | `--only {auto-match,extract}` | Only show extracted chapters or auto-matched chapters without generating a new EPUB
-| `--keep-source-chapters` | Keep source (original) chapters with no matching target (translation) chapters.<br>Default: off
-| `--keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: off
+| `--keep-source-chapters`<br>`--no-keep-source-chapters` | Keep source (original) chapters with no matching target (translation) chapters.<br>Default: on
+| `--keep-target-chapters`<br>`--no-keep-target-chapters` | Keep target (translation) chapters with no matching source (original) chapters.<br>Default: on
 | `--cover {source, target}` | Which book's cover to copy for the new EPUB.<br>Default: source
 | `--align-model` | Name or path to sentence embedding model.<br>Default: [LaBSE](https://huggingface.co/sentence-transformers/LaBSE)
 | `--split-model` | Name or path to text-to-sentences splitter model.<br>Default: [sat-3l](https://huggingface.co/segment-any-text/sat-3l)
