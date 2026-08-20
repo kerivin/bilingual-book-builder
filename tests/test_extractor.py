@@ -214,6 +214,41 @@ def test_empty_book(fs):
     assert chapters == []
 
 
+def test_footnote_body_empty_inline_anchor(fs):
+    """Gutenberg-style footnote: the body id sits on a self-closing <a> at the
+    start of a paragraph and the real text follows. Regression: body was
+    collected as empty, so footnotes rendered blank."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Text<a id="FNanchor_1_1"/><a class="fnanchor pginternal" href="f.xhtml#Footnote_1_1">[1]</a> end.</p>
+    <div class="footnote"><p><a id="Footnote_1_1"/><a href="f.xhtml#FNanchor_1_1" class="pginternal"><span class="label">[1]</span></a>This is the footnote body.</p></div>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
+                          min_chars=1).get_chapter_list()
+    assert fn_map.get("Footnote_1_1") == "This is the footnote body."
+    assert fn_map.get("FNanchor_1_1", "") == ""
+
+
+def test_footnote_body_empty_inline_anchor_mid_paragraph(fs):
+    """An empty inline anchor in the middle of a paragraph (the reference
+    anchor) must NOT grab the whole paragraph as a footnote body."""
+    html = """<html><body>
+    <h1>Ch</h1>
+    <p>Some text<a id="FNanchor_1_1"/><a href="f.xhtml#Footnote_1_1">[1]</a> more text.</p>
+    <div class="footnote"><p><a id="Footnote_1_1"/><a href="f.xhtml#FNanchor_1_1">[1]</a>The note.</p></div>
+    </body></html>"""
+    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
+                          min_chars=1).get_chapter_list()
+    assert fn_map.get("Footnote_1_1") == "The note."
+    assert fn_map.get("FNanchor_1_1", "") == ""
+
+
 def test_footnote_simple_sup(fs):
     """Basic superscript footnote: link in <sup>, body in same file.
     Header fallback does NOT remove footnotes, so body text remains."""

@@ -87,8 +87,17 @@ class FootnoteExtractor:
                         body_parts.append(str(sibling))
                     footnote_bodies[fid] = ''.join(body_parts)
                 else:
+                    contents = list(elem.contents)
+                    if not contents and elem.parent is not None:
+                        first_child = next((c for c in elem.parent.contents
+                                            if not (isinstance(c, NavigableString)
+                                                    and not str(c).strip())), None)
+                        if first_child is elem:
+                            contents = [c for c in elem.parent.contents if c is not elem]
+                            if not contents:
+                                contents = list(elem.parent.contents)
                     footnote_bodies[fid] = ''.join(
-                        str(c) for c in self._strip_leading_marker(elem.contents)
+                        str(c) for c in self._strip_leading_marker(contents)
                     )
                 self._footnote_files[fid] = full_href
                 candidate_ids.remove(fid)
