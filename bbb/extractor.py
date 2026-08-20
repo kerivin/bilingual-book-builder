@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Set, OrderedDict
 
-from bs4 import BeautifulSoup, Comment, NavigableString, ProcessingInstruction
+from bs4 import BeautifulSoup, Comment, NavigableString, ProcessingInstruction, Tag
 
 from bbb import utils
 from bbb.constants import HEADING_TAGS, BLOCK_TAGS
@@ -39,6 +39,7 @@ class FootnoteExtractor:
         self.footnotes: Dict[str, str] = {}
         self._footnote_files: Dict[str, str] = {}
         self.current_refs: List[Dict[str, str]] = []
+        self._plain_seq = 0
 
     def build_map(self) -> Dict[str, str]:
         footnote_bodies = {}
@@ -185,6 +186,15 @@ class FootnoteExtractor:
         if counter == 0:
             self._remove_plain_footnotes(soup, full_href)
 
+    @staticmethod
+    def _inside_tag(node, names) -> bool:
+        parent = node.parent
+        while parent is not None:
+            if getattr(parent, 'name', None) in names:
+                return True
+            parent = parent.parent
+        return False
+
     def _plain_sections(self, soup) -> List[List[Tag]]:
         body = soup.body if soup.body else soup
         sections: List[List[Tag]] = []
@@ -218,17 +228,16 @@ class FootnoteExtractor:
                 markers.append({'num': int(m.group(1)), 'elem': el, 'idx': idx})
         return markers
 
-    def _plain_refs(self, soup, blocks, exclude_ids=frozenset()) -> List[Dict[str, Any]]:
+    def _plain_refs(self, soup, blocks, exclude_ids) -> List[Dict[str, Any]]:
         block_ids = {id(el): idx for idx, el in enumerate(blocks)}
         refs = []
         body = soup.body if soup.body else soup
         for node in body.find_all(string=True):
             if not isinstance(node, NavigableString):
                 continue
-            parent = node.parent
-            if parent.find_parent(('a', 'sup', 'script', 'style')):
+            if self._inside_tag(node, ('a', 'sup', 'script', 'style')):
                 continue
-            blk = parent
+            blk = node.parent
             while blk is not None and blk.name not in PLAIN_FN_BODY_TAGS:
                 blk = blk.parent
             if blk is None or id(blk) not in block_ids or id(blk) in exclude_ids:
@@ -243,7 +252,7 @@ class FootnoteExtractor:
         refs.sort(key=lambda r: r['block_idx'])
         return refs
 
-    def _validate_plain(self, markers, refs):
+    def _validate_plain(self, markers, refs) -> Optional[List[Dict[str, Any]]]:
         if not markers or not refs:
             return None
         last_ref = max(r['block_idx'] for r in refs)
@@ -260,16 +269,24 @@ class FootnoteExtractor:
 
     def _strip_plain_marker_html(self, el) -> str:
         parts = list(el.contents)
-        if parts and isinstance(parts[0], NavigableString):
-            text = str(parts[0]).lstrip()
-            stripped = re.sub(r'^\[(\d+)\]\s*', '', text, count=1)
-            if stripped != text:
-                parts[0] = NavigableString(stripped)
+        while parts:
+            node = parts[0]
+            if isinstance(node, NavigableString):
+                text = str(node).lstrip()
+                if not text:
+                    parts.pop(0)
+                    continue
+                stripped = re.sub(r'^\[(\d+)\]\s*', '', text, count=1)
+                if stripped != text:
+                    parts[0] = NavigableString(stripped)
+                break
+            if isinstance(node, Tag) and not node.get_text(strip=True):
+                parts.pop(0)
+                continue
+            break
         return ''.join(str(c) for c in parts)
 
     def _remove_plain_footnotes(self, soup, full_href) -> None:
-        if not hasattr(self, '_plain_seq'):
-            self._plain_seq = 0
         counter = 0
         for blocks in self._plain_sections(soup):
             markers = self._plain_markers(blocks)

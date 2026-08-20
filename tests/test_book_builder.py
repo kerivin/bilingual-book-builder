@@ -255,7 +255,8 @@ def test_epub_file_rejects_garbage(fs):
 
 def test_footnote_multiple_refs_same_body_deduped(fs):
     """Two references to the same footnote body render one footnote item and
-    two links to it (plain-text refs with the same number share a body)."""
+    two links to it (plain-text refs with the same number share a body).
+    The first occurrence keeps the id; duplicates must not reuse it."""
     src_file, tgt_file = build_epub_files(fs)
     block = {
         "source": {"toc_path": ["S"], "content_html": "", "index": 0,
@@ -274,4 +275,29 @@ def test_footnote_multiple_refs_same_body_deduped(fs):
     assert len(soup.find_all('li', id=lambda x: x and x.startswith('fn_'))) == 1
     assert 'Shared note.' in body
     assert body.count('href="#fn_1"') == 2
+    assert body.count('id="fnref_1"') == 1
+    assert 'S_FNREF_' not in body
+
+
+def test_footnote_empty_body_multiple_refs_no_dangling_link(fs):
+    """Two references to a footnote whose body is empty must not produce a
+    link to a nonexistent item. Regression: the second ref linked to a
+    footnote <li> that was never emitted."""
+    src_file, tgt_file = build_epub_files(fs)
+    block = {
+        "source": {"toc_path": ["S"], "content_html": "", "index": 0,
+                   "footnote_placeholders": [{"token": "S_FNREF_1", "target_id": "fn1"},
+                                              {"token": "S_FNREF_2", "target_id": "fn1"}]},
+        "target": {"toc_path": ["T"], "content_html": "", "index": 0,
+                   "footnote_placeholders": []},
+        "alignment": [{"source_sents": [{"html": "<p>A S_FNREF_1 B S_FNREF_2</p>", "first": False}],
+                          "target_sents": [{"html": "<p>C</p>", "first": False}]}]
+    }
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[block],
+                     source_footnotes={"fn1": "   "})
+    new_book = bb.run()
+    body = '\n'.join(chapter_bodies(new_book))
+    assert 'href="#fn_' not in body
+    assert 'id="fn_' not in body
+    assert 'class="footnotes"' not in body
     assert 'S_FNREF_' not in body

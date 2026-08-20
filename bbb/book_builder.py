@@ -270,15 +270,17 @@ class BookBuilder:
             target_id = token_map.get(token)
             if not target_id:
                 return token
+            fn_body = global_footnotes.get(target_id, '')
+            if not fn_body.strip():
+                num = used_numbers[0] + 1
+                used_numbers[0] = num
+                return f'<sup class="footnote-ref">{num}</sup>'
             if target_id in target_numbers:
                 num = target_numbers[target_id]
-                return f'<sup class="footnote-ref" id="fnref_{num}"><a href="#fn_{num}">[{num}]</a></sup>'
+                return f'<sup class="footnote-ref"><a href="#fn_{num}">[{num}]</a></sup>'
             num = used_numbers[0] + 1
             used_numbers[0] = num
             target_numbers[target_id] = num
-            fn_body = global_footnotes.get(target_id, '')
-            if not fn_body.strip():
-                return f'<sup class="footnote-ref">{num}</sup>'
             ref_id = f'fnref_{num}'
             fn_id = f'fn_{num}'
             footnote_items.append({

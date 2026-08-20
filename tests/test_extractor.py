@@ -789,10 +789,9 @@ def test_plain_text_footnote_restart_numbering(fs):
                                  min_chars=1).get_chapter_list()
     plain = {k: v for k, v in fn_map.items() if k.startswith("S_PTFN_")}
     assert len(plain) == 2
-    assert len({v.strip() for v in plain.values()}) == 2
-    assert "First note body." in chapters[0]["content_html"] or \
-           "First note body." in plain["S_PTFN_1"]
-    assert "Second note body." not in chapters[0]["content_html"]
+    assert {v.strip() for v in plain.values()} == {"First note body.", "Second note body."}
+    assert "First note body." not in chapters[0]["content_html"]
+    assert "Second note body." not in chapters[1]["content_html"]
     assert "S_FNREF_1" in chapters[0]["content_html"]
     assert "S_FNREF_2" in chapters[1]["content_html"]
 
@@ -923,3 +922,84 @@ def test_plain_text_footnote_multiple_refs_same_number(fs):
     content = chapters[0]["content_html"]
     assert content.count("S_FNREF_") == 2
     assert "S_FNREF_1" in content and "S_FNREF_2" in content
+
+
+def test_plain_text_footnote_link_text_not_consumed(fs):
+    """A normal hyperlink whose text contains [1] (not a footnote reference)
+    must keep its text; only the real plain-text reference is tokenized.
+    Regression: [1] inside the link was swallowed as a plain ref, corrupting
+    the link and shifting the real ref's number."""
+    ch1 = """<html><body>
+    <h1>Ch One</h1>
+    <p>See the <a href="#chapter2">[1]see the chapter</a> and note here.[1]</p>
+    <p id="chapter2">The referenced chapter.</p>
+    <p class="footnote">[1] A real plain-text note.</p>
+    </body></html>"""
+    ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
+    epub_bytes = make_epub_bytes(
+        [{"filename": "f.xhtml", "content": ch1},
+         {"filename": "g.xhtml", "content": ch2}],
+        toc_entries=[("Ch One", "f.xhtml"), ("Ch Two", "g.xhtml")]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
+                                 min_chars=1).get_chapter_list()
+    content = chapters[0]["content_html"]
+    assert '<a href="#chapter2">[1]see the chapter</a>' in content
+    assert content.count("S_FNREF_") == 1
+    assert "S_FNREF_1" in content
+    assert "The referenced chapter." in content
+
+
+def test_plain_text_footnote_sup_marker_not_tokenized(fs):
+    """A <sup>[1]</sup> is footnote markup, not a plain-text ref; it must be
+    left intact rather than half-tokenized inside the <sup>. Regression: the
+    sup's text was replaced with a token, producing nested <sup> markup."""
+    ch1 = """<html><body>
+    <h1>Ch One</h1>
+    <p>Note here<sup>[1]</sup>.</p>
+    <p class="footnote">[1] A real plain-text note.</p>
+    </body></html>"""
+    ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
+    epub_bytes = make_epub_bytes(
+        [{"filename": "f.xhtml", "content": ch1},
+         {"filename": "g.xhtml", "content": ch2}],
+        toc_entries=[("Ch One", "f.xhtml"), ("Ch Two", "g.xhtml")]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
+                                 min_chars=1).get_chapter_list()
+    content = chapters[0]["content_html"]
+    assert "<sup>[1]</sup>" in content
+    assert "S_FNREF_" not in content
+    plain = {k: v for k, v in fn_map.items() if k.startswith("S_PTFN_")}
+    assert plain == {}
+
+
+def test_plain_text_footnote_marker_leading_empty_anchor(fs):
+    """A marker paragraph that starts with an empty anchor (Gutenberg-style)
+    must still have the [n] marker stripped and the empty anchor dropped,
+    so the footnote item is not double-numbered."""
+    ch1 = """<html><body>
+    <h1>Ch One</h1>
+    <p>Text.[1]</p>
+    <p class="footnote"><a id="footnote_1_1"></a>[1] Body of the note.</p>
+    </body></html>"""
+    ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
+    epub_bytes = make_epub_bytes(
+        [{"filename": "f.xhtml", "content": ch1},
+         {"filename": "g.xhtml", "content": ch2}],
+        toc_entries=[("Ch One", "f.xhtml"), ("Ch Two", "g.xhtml")]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
+                                 min_chars=1).get_chapter_list()
+    plain = {k: v for k, v in fn_map.items() if k.startswith("S_PTFN_")}
+    assert len(plain) == 1
+    body = list(plain.values())[0]
+    assert "[1]" not in body
+    assert "footnote_1_1" not in body
+    assert body.startswith("Body of the note.")
