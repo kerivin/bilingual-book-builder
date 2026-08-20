@@ -20,13 +20,10 @@ def test_simple_splitter_multiline_paragraph():
     assert result[0] == ["Line one.", "Line two."]
     assert result[1] == ["Another paragraph."]
 
-def test_simple_splitter_empty_text():
+@pytest.mark.parametrize("text", ["", "\n\n\n"])
+def test_simple_splitter_no_content(text):
     s = SimpleWrapper(Language.ENGLISH)
-    assert s.split("") == []
-
-def test_simple_splitter_only_newlines():
-    s = SimpleWrapper(Language.ENGLISH)
-    assert s.split("\n\n\n") == []
+    assert s.split(text) == []
 
 def test_sat_wrapper_mocked():
     with patch('bbb.splitter.SaT') as mock_sat:

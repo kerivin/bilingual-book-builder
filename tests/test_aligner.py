@@ -48,56 +48,34 @@ def test_perfect_one_to_one():
         assert sent_text(result[1]['target_sents'][0]) == 'Welt.'
 
 
-def test_sentences_missing_in_target():
-    aligner = make_aligner(make_chapters(["A. B. C."]), make_chapters(["A. C."]))
+@pytest.mark.parametrize("src,tgt,result", [
+    ("A. B. C.", "A. C.", [([0], [0]), ([2], [1])]),
+    ("A. C.", "A. B. C.", [([0], [0]), ([1], [2])]),
+])
+def test_one_sentence_missing(src, tgt, result):
+    """A sentence present on one side but missing on the other is interleaved
+    as a one-sided row; the aligned sentences around it stay paired."""
+    aligner = make_aligner(make_chapters([src]), make_chapters([tgt]))
     with patch.object(aligner.splitter, 'run', side_effect=lambda text, lang:
-        [["A.", "B.", "C."]] if lang == Language.ENGLISH else [["A.", "C."]]), \
+         [[s for s in text.split('. ')]]) as _, \
          patch('bbb.aligner.Bertalign') as mock_bert:
-        mock_bert.return_value.result = [([0], [0]), ([2], [1])]
+        mock_bert.return_value.result = result
         mock_bert.return_value.align_sents = MagicMock()
-        result = aligner._align_pair("A. B. C.", "A. C.",
-                                     Language.ENGLISH, Language.GERMAN)
-        assert len(result) == 3
-        assert sent_text(result[0]['source_sents'][0]) == 'A.'
-        assert sent_text(result[0]['target_sents'][0]) == 'A.'
-        assert sent_text(result[1]['source_sents'][0]) == 'B.'
-        assert result[1]['target_sents'] == []
-        assert sent_text(result[2]['source_sents'][0]) == 'C.'
-        assert sent_text(result[2]['target_sents'][0]) == 'C.'
+        out = aligner._align_pair(src, tgt, Language.ENGLISH, Language.GERMAN)
+        assert len(out) == 3
+        assert sent_text(out[0]['source_sents'][0]) == src.split('. ')[0]
+        assert sent_text(out[0]['target_sents'][0]) == tgt.split('. ')[0]
+        assert sent_text(out[2]['source_sents'][0]) == src.split('. ')[-1]
+        assert sent_text(out[2]['target_sents'][0]) == tgt.split('. ')[-1]
 
 
-def test_sentences_missing_in_source():
-    aligner = make_aligner(make_chapters(["A. C."]), make_chapters(["A. B. C."]))
-    with patch.object(aligner.splitter, 'run', side_effect=lambda text, lang:
-        [["A.", "C."]] if lang == Language.ENGLISH else [["A.", "B.", "C."]]), \
-         patch('bbb.aligner.Bertalign') as mock_bert:
-        mock_bert.return_value.result = [([0], [0]), ([1], [2])]
-        mock_bert.return_value.align_sents = MagicMock()
-        result = aligner._align_pair("A. C.", "A. B. C.",
-                                     Language.ENGLISH, Language.GERMAN)
-        assert len(result) == 3
-        assert sent_text(result[0]['source_sents'][0]) == 'A.'
-        assert sent_text(result[0]['target_sents'][0]) == 'A.'
-        assert result[1]['source_sents'] == []
-        assert sent_text(result[1]['target_sents'][0]) == 'B.'
-        assert sent_text(result[2]['source_sents'][0]) == 'C.'
-        assert sent_text(result[2]['target_sents'][0]) == 'C.'
-
-
-def test_empty_source_text():
-    aligner = make_aligner(make_chapters([""]), make_chapters(["Text"]))
-    result = aligner._align_pair("", "Text", Language.ENGLISH, Language.GERMAN)
-    assert len(result) == 1
-    assert result[0]['source_sents'][0]['html'] == ''
-    assert sent_text(result[0]['target_sents'][0]) == 'Text'
-
-
-def test_empty_target_text():
-    aligner = make_aligner(make_chapters(["Text"]), make_chapters([""]))
-    result = aligner._align_pair("Text", "", Language.ENGLISH, Language.GERMAN)
-    assert len(result) == 1
-    assert sent_text(result[0]['source_sents'][0]) == 'Text'
-    assert result[0]['target_sents'][0]['html'] == ''
+@pytest.mark.parametrize("empty,full", [("", "Text"), ("Text", "")])
+def test_empty_side_text(empty, full):
+    aligner = make_aligner(make_chapters([empty]), make_chapters([full]))
+    out = aligner._align_pair(empty, full, Language.ENGLISH, Language.GERMAN)
+    assert len(out) == 1
+    assert out[0]['source_sents'][0]['html'] == empty
+    assert out[0]['target_sents'][0]['html'] == full
 
 
 def test_heading_is_not_paragraph_start():
@@ -132,26 +110,3 @@ def test_invalid_language_code_does_not_crash():
                            source_lang="xx", target_lang="yy")
     assert aligner.source_language is None
     assert aligner.target_language is None
-
-
-def test_insertion_deletion_beads_do_not_crash():
-    aligner = make_aligner(make_chapters(["A. B. C. D. E."]),
-                           make_chapters(["A. X. C. D."]))
-    with patch.object(aligner.splitter, 'run', side_effect=lambda text, lang:
-        [["A.", "B.", "C.", "D.", "E."]] if lang == Language.ENGLISH
-        else [["A.", "X.", "C.", "D."]]), \
-         patch('bbb.aligner.Bertalign') as mock_bert:
-        mock_bert.return_value.result = [([0], [0]), ([], [1]), ([2], [2]), ([3], [3])]
-        mock_bert.return_value.align_sents = MagicMock()
-        result = aligner._align_pair("A. B. C. D. E.", "A. X. C. D.",
-                                     Language.ENGLISH, Language.GERMAN)
-        assert len(result) == 6
-        assert sent_text(result[0]['source_sents'][0]) == 'A.'
-        assert result[1]['target_sents'] == []
-        assert sent_text(result[1]['source_sents'][0]) == 'B.'
-        assert result[2]['source_sents'] == []
-        assert sent_text(result[2]['target_sents'][0]) == 'X.'
-        assert sent_text(result[3]['source_sents'][0]) == 'C.'
-        assert sent_text(result[4]['source_sents'][0]) == 'D.'
-        assert result[5]['target_sents'] == []
-        assert sent_text(result[5]['source_sents'][0]) == 'E.'

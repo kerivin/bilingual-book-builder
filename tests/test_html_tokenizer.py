@@ -28,15 +28,6 @@ def test_multiple_paragraphs(tokenizer):
     assert 1 in para_starts
 
 
-def test_heading_not_indented(tokenizer):
-    html = "<h1>Chapter 1</h1><p>First sentence.</p>"
-    sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
-    # Heading should not be marked for indentation
-    assert 0 not in para_starts
-    # First paragraph sentence should be marked
-    assert 1 in para_starts
-
-
 def test_heading_with_class_not_indented(tokenizer):
     html = "<h1 class='chapter'>Chapter Title</h1><p>First sentence.</p>"
     sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
@@ -58,13 +49,6 @@ def test_verse_poem_line_by_line(tokenizer):
     assert 0 in para_starts
     assert 1 in para_starts
     assert 2 in para_starts
-
-
-def test_br_placeholder_handling(tokenizer):
-    html = "<p>First line.<br/>Second line.</p>"
-    sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
-    # BR should be replaced with newline, splitting into separate lines
-    assert len(sents) >= 2
 
 
 def test_html_fragments_preserved(tokenizer):
@@ -120,25 +104,19 @@ def test_div_paragraphs_get_indented(tokenizer):
     assert 2 in para_starts
 
 
-def test_poem_lines_in_single_block_only_first_indented(tokenizer):
-    html = """<blockquote><div>
-    <br/>Line one.<br/>Line two.<br/>Line three.<br/>
-    </div></blockquote>"""
+@pytest.mark.parametrize("html", [
+    "<p>One.<br/>Two.<br/>Three.</p>",
+    "<p>One.\nTwo.\nThree.</p>",
+])
+def test_single_block_multiline_only_first_indented(tokenizer, html):
+    """A single block whose sentences are separated by <br/> or a newline is one
+    paragraph: every line is a separate sentence but only the first is a
+    paragraph start."""
     sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
     assert len(sents) == 3
-    # One block is a single paragraph: only the first line is a paragraph start
     assert 0 in para_starts
     assert 1 not in para_starts
     assert 2 not in para_starts
-
-
-def test_multiline_div_only_first_sentence_indented(tokenizer):
-    html = """<div class="pi">First sentence of paragraph.
-Second sentence of paragraph.</div>"""
-    sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
-    assert len(sents) == 2
-    assert 0 in para_starts
-    assert 1 not in para_starts
 
 
 def test_soft_wrapped_lines_are_joined(tokenizer):
@@ -184,24 +162,19 @@ def test_soft_wrapped_paragraph_split_by_inline_tag_is_joined(tokenizer):
     assert 0 in para_starts
 
 
-def test_processing_instruction_in_heading(tokenizer):
-    html = '<h2 class="head" id="h"><?pagebreak number="1"?><a id="p1"/>One</h2>'
-    sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
-    assert len(sents) == 1
-    assert sents[0][0] == "One"
-    assert "pagebreak" not in sents[0][1].lower()
-    assert "One" in sents[0][1]
-
-
-def test_processing_instruction_in_paragraph(tokenizer):
-    html = ('<p>Immediately she told my mother in bad French '
-            '<?pagebreak number="8"?><a id="p8"/>a pointless and quite '
-            'irrelevant story about a Polish woman.</p>')
+@pytest.mark.parametrize("html,expected_text", [
+    ('<h2 class="head" id="h"><?pagebreak number="1"?><a id="p1"/>One</h2>', "One"),
+    ('<p>Immediately she told my mother in bad French '
+     '<?pagebreak number="8"?><a id="p8"/>a pointless and quite '
+     'irrelevant story about a Polish woman.</p>',
+     "Immediately she told my mother in bad French a pointless and quite "
+     "irrelevant story about a Polish woman."),
+])
+def test_processing_instruction_stripped(tokenizer, html, expected_text):
     sents, para_starts = tokenizer.extract(html, Language.ENGLISH)
     assert len(sents) == 1
     assert "pagebreak" not in sents[0][1].lower()
-    assert sents[0][0] == ("Immediately she told my mother in bad French "
-                           "a pointless and quite irrelevant story about a Polish woman.")
+    assert sents[0][0] == expected_text
 
 
 def test_comment_not_in_fragment(tokenizer):

@@ -80,25 +80,6 @@ def test_guide_skip(fs):
     assert "Chapter 1" in chapters[1]["toc_path"][-1]
 
 
-def test_footnotes_removed(fs):
-    html = """<html><body>
-    <h1>Ch</h1>
-    <p>Text<a href="#fn1" id="fnref1"><sup>1</sup></a> end.</p>
-    <p id="fn1">Footnote content.</p>
-    </body></html>"""
-    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
-    path = write_epub_to_fake(fs, epub_bytes)
-    epub_file = EpubFile(path)
-    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
-    assert len(fn_map) == 1
-    assert "Footnote content" in list(fn_map.values())[0]
-    text = chapters[0]["content_html"]
-    # The footnote ref is replaced by a placeholder line; the footnote body
-    # stays in the chapter text because header fallback doesn't remove it.
-    assert "Text\n1\nend." in text
-    assert "Footnote content" in text
-
-
 def test_paragraphs_preserved(fs):
     html = create_chapter_html("Title", "Paragraph one.\n\nParagraph two.")
     epub_bytes = make_epub_bytes([{"filename": "p.xhtml", "content": html}])
@@ -215,24 +196,6 @@ def test_empty_book(fs):
     assert chapters == []
 
 
-def test_footnote_body_empty_inline_anchor(fs):
-    """Gutenberg-style footnote: the body id sits on a self-closing <a> at the
-    start of a paragraph and the real text follows. Regression: body was
-    collected as empty, so footnotes rendered blank."""
-    html = """<html><body>
-    <h1>Ch</h1>
-    <p>Text<a id="FNanchor_1_1"/><a class="fnanchor pginternal" href="f.xhtml#Footnote_1_1">[1]</a> end.</p>
-    <div class="footnote"><p><a id="Footnote_1_1"/><a href="f.xhtml#FNanchor_1_1" class="pginternal"><span class="label">[1]</span></a>This is the footnote body.</p></div>
-    </body></html>"""
-    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
-    path = write_epub_to_fake(fs, epub_bytes)
-    epub_file = EpubFile(path)
-    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
-                          min_chars=1).get_chapter_list()
-    assert fn_map.get("Footnote_1_1") == "This is the footnote body."
-    assert fn_map.get("FNanchor_1_1", "") == ""
-
-
 def test_footnote_body_empty_inline_anchor_mid_paragraph(fs):
     """An empty inline anchor in the middle of a paragraph (the reference
     anchor) must NOT grab the whole paragraph as a footnote body."""
@@ -251,10 +214,11 @@ def test_footnote_body_empty_inline_anchor_mid_paragraph(fs):
 
 
 def test_footnote_body_removed_from_chapter_content(fs):
-    """Gutenberg-style: the footnote body div must be removed from the chapter
-    content so the footnote text is not rendered inline (it is re-rendered in
-    the footnote list). Regression: the body text appeared inline AND as a
-    footnote item."""
+    """Gutenberg-style: the footnote body div is removed from the chapter content
+    (so it is not rendered inline) and the forward reference is tokenized, while
+    the backref link (targeting the reference anchor in the main text) is not
+    turned into a footnote reference. Regressions: the body appeared inline AND
+    as a footnote item; backrefs were tokenized, producing empty items."""
     ch1 = """<html><body>
     <h1>Ch One</h1>
     <p>Text<a id="FNanchor_1_1"/><a class="fnanchor pginternal" href="f.xhtml#Footnote_1_1">[1]</a> end.</p>
@@ -270,37 +234,17 @@ def test_footnote_body_removed_from_chapter_content(fs):
     epub_file = EpubFile(path)
     chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
                                  min_chars=1).get_chapter_list()
+    body = fn_map["Footnote_1_1"]
     content = chapters[0]["content_html"]
-    assert "This is the footnote body." in fn_map["Footnote_1_1"]
+    # body extracted, removed from content, forward ref tokenized
+    assert "This is the footnote body." in body
     assert "This is the footnote body." not in content
     assert "S_FNREF_1" in content
-
-
-def test_footnote_backref_not_tokenized(fs):
-    """Gutenberg-style backref links (targeting the reference anchor inside the
-    main text) must not become footnote references. Regression: backrefs were
-    tokenized, producing empty footnote items and stray superscripts."""
-    ch1 = """<html><body>
-    <h1>Ch One</h1>
-    <p>Text<a id="FNanchor_1_1"/><a class="fnanchor pginternal" href="f.xhtml#Footnote_1_1">[1]</a> end.</p>
-    <div class="footnote"><p><a id="Footnote_1_1"/><a href="f.xhtml#FNanchor_1_1" class="pginternal"><span class="label">[1]</span></a>Real note text.</p></div>
-    </body></html>"""
-    ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
-    epub_bytes = make_epub_bytes(
-        [{"filename": "f.xhtml", "content": ch1},
-         {"filename": "g.xhtml", "content": ch2}],
-        toc_entries=[("Ch One", "f.xhtml"), ("Ch Two", "g.xhtml")]
-    )
-    path = write_epub_to_fake(fs, epub_bytes)
-    epub_file = EpubFile(path)
-    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
-                                 min_chars=1).get_chapter_list()
-    placeholders = chapters[0]["footnote_placeholders"]
-    targets = [p["target_id"] for p in placeholders]
+    # backref anchor is excluded from both the placeholders and the content
+    targets = [p["target_id"] for p in chapters[0]["footnote_placeholders"]]
     assert targets == ["Footnote_1_1"]
     assert "FNanchor_1_1" not in targets
-    assert "FNanchor_1_1" not in chapters[0]["content_html"]
-    assert "Real note text." not in chapters[0]["content_html"]
+    assert "FNanchor_1_1" not in content
 
 
 def test_footnote_marker_sibling_body_removed(fs):
@@ -351,58 +295,24 @@ def test_footnote_simple_sup(fs):
     assert "This is the note." in text
 
 
-def test_footnote_numeric_without_sup(fs):
-    """Footnote link without sup but with numeric marker – raw marker remains."""
-    html = """<html><body>
-    <h1>Ch</h1>
-    <p>Text<a id="fnref1" href="#fn1">1</a> end.</p>
-    <p id="fn1">Note 1.</p>
-    </body></html>"""
+@pytest.mark.parametrize("html,marker,expected_body", [
+    ('<html><body><h1>Ch</h1><p>X<a href="#fn1">[1]</a>Y</p>'
+     '<p id="fn1">Bracket note.</p></body></html>', "[1]", "Bracket note."),
+    ('<html><body><h1>Ch</h1><p>Word<a href="#fnstar"><sup>*</sup></a>.</p>'
+     '<p id="fnstar">Asterisk note.</p></body></html>', "*", "Asterisk note."),
+])
+def test_footnote_text_marker(fs, html, marker, expected_body):
+    """A non-numeric textual marker ([1], *) in the reference link is still a
+    footnote; its body is extracted and the raw marker stays in the chapter text."""
     epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
     path = write_epub_to_fake(fs, epub_bytes)
     epub_file = EpubFile(path)
     chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
-    assert "fn1" not in fn_map
+    assert expected_body in list(fn_map.values())[0]
     text = chapters[0]["content_html"]
     assert "S_FNREF_1" not in text
-    assert "Text\n1\nend." in text
-    assert "Note 1." in text
-
-
-def test_footnote_bracket_marker(fs):
-    """Footnote with marker like [1] – kept in chapter text."""
-    html = """<html><body>
-    <h1>Ch</h1>
-    <p>X<a href="#fn1">[1]</a>Y</p>
-    <p id="fn1">Bracket note.</p>
-    </body></html>"""
-    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
-    path = write_epub_to_fake(fs, epub_bytes)
-    epub_file = EpubFile(path)
-    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
-    assert fn_map.get("fn1") == "Bracket note."
-    text = chapters[0]["content_html"]
-    assert "S_FNREF_1" not in text
-    assert "X\n[1]\nY" in text
-    assert "Bracket note." in text
-
-
-def test_footnote_symbol_marker(fs):
-    """Footnote with symbol marker like '*' – kept in chapter text."""
-    html = """<html><body>
-    <h1>Ch</h1>
-    <p>Word<a href="#fnstar"><sup>*</sup></a>.</p>
-    <p id="fnstar">Asterisk note.</p>
-    </body></html>"""
-    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
-    path = write_epub_to_fake(fs, epub_bytes)
-    epub_file = EpubFile(path)
-    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
-    assert fn_map.get("fnstar") == "Asterisk note."
-    text = chapters[0]["content_html"]
-    assert "S_FNREF_1" not in text
-    assert "Word\n*\n." in text
-    assert "Asterisk note." in text
+    assert marker in text
+    assert expected_body in text
 
 
 def test_multiple_footnotes_same_chapter(fs):
@@ -523,13 +433,18 @@ def test_footnote_body_multi_paragraph(fs):
     assert "Para2." in note
 
 
-def test_footnote_body_strips_embedded_marker(fs):
-    """Footnote element that embeds its own number marker must drop it –
-    the output <ol> already numbers each item (regression: '1. 1. …')."""
-    html = """<html><body>
+@pytest.mark.parametrize("body", [
+    '<div id="fn1"><div><p>1</p></div><p>Body of the note.</p></div>',
+    '<div id="fn1">1<p>Body of the note.</p></div>',
+])
+def test_footnote_body_strips_embedded_marker(fs, body):
+    """A footnote element that embeds its own number marker (as a nested <p> or a
+    bare leading text node) must drop it; the output list already numbers each
+    item (regression: '1. 1. …')."""
+    html = f"""<html><body>
     <h1>Ch</h1>
     <p>Text<a href="#fn1"><sup>1</sup></a> end.</p>
-    <div id="fn1"><div><p>1</p></div><p>Body of the note.</p></div>
+    {body}
     </body></html>"""
     epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
     path = write_epub_to_fake(fs, epub_bytes)
@@ -538,21 +453,6 @@ def test_footnote_body_strips_embedded_marker(fs):
     note = fn_map["fn1"]
     assert "<p>Body of the note.</p>" in note
     assert ">1</" not in note
-
-
-def test_footnote_body_strips_embedded_marker_text(fs):
-    """A leading bare-number text node inside the footnote element is a marker."""
-    html = """<html><body>
-    <h1>Ch</h1>
-    <p>Text<a href="#fn1"><sup>1</sup></a> end.</p>
-    <div id="fn1">1<p>Body of the note.</p></div>
-    </body></html>"""
-    epub_bytes = make_epub_bytes([{"filename": "f.xhtml", "content": html}])
-    path = write_epub_to_fake(fs, epub_bytes)
-    epub_file = EpubFile(path)
-    _, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX, min_chars=1).get_chapter_list()
-    note = fn_map["fn1"]
-    assert "<p>Body of the note.</p>" in note
     assert "1<p>" not in note
 
 

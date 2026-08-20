@@ -86,55 +86,6 @@ def test_complex_html_structure(tokenizer):
             assert '<i>' in fragment
 
 
-def test_preserves_original_html_structure(tokenizer):
-    """Test that original HTML structure is preserved in fragments."""
-    html = """
-    <p><b>Bold</b> and <i>italic</i> text.</p>
-    """
-    sents, para_starts = tokenizer.extract(html, None)
-    
-    # Should have at least one sentence
-    assert len(sents) >= 1
-    
-    # HTML tags should be preserved in fragments
-    for text, fragment in sents:
-        if 'Bold' in text:
-            assert '<b>' in fragment
-        if 'italic' in text:
-            assert '<i>' in fragment
-
-
-def test_br_tag_splitting(tokenizer):
-    """Test that <br> tags create line breaks which split into separate sentences."""
-    html = """
-    <p>First line.<br/>Second line.<br/>Third line.</p>
-    """
-    sents, para_starts = tokenizer.extract(html, None)
-
-    # Should have 3 sentences (one per line)
-    assert len(sents) == 3
-
-    # One <p> is a single paragraph: only the first sentence is a paragraph start
-    assert 0 in para_starts
-    assert 1 not in para_starts
-    assert 2 not in para_starts
-
-
-def test_multiline_paragraph_only_first_sentence_indented(tokenizer):
-    """Test that a paragraph spanning multiple lines only indents its first sentence."""
-    html = """
-    <p>First sentence.
-    Second sentence.
-    Third sentence.</p>
-    """
-    sents, para_starts = tokenizer.extract(html, None)
-
-    assert len(sents) == 3
-    assert 0 in para_starts
-    assert 1 not in para_starts
-    assert 2 not in para_starts
-
-
 def test_empty_lines_skipped(tokenizer):
     """Test that empty lines are skipped."""
     html = """

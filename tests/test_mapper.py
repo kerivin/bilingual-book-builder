@@ -51,21 +51,17 @@ def test_no_match_above_threshold(mock_model):
     result = mapper.run_auto(mock_model, force_show=False, threshold=0.8)
     assert result == [(0, None), (None, 0)]
 
-def test_empty_source(mock_model):
-    src = make_chapters([], [])
-    tgt = make_chapters(["A"], ["alpha"])
-    mapper = Mapper(src, tgt, keep_unmatched_target_chapters=True,
-                    keep_unmatched_source_chapters=False)
+@pytest.mark.parametrize("src,tgt,keep_src,keep_tgt,expected", [
+    ([], ["A"], False, True, [(None, 0)]),
+    (["A"], [], True, False, [(0, None)]),
+])
+def test_one_side_empty(mock_model, src, tgt, keep_src, keep_tgt, expected):
+    src_ch = make_chapters([f"T{i}" for i in range(len(src))], src)
+    tgt_ch = make_chapters([f"T{i}" for i in range(len(tgt))], tgt)
+    mapper = Mapper(src_ch, tgt_ch, keep_unmatched_source_chapters=keep_src,
+                    keep_unmatched_target_chapters=keep_tgt)
     result = mapper.run_auto(mock_model, force_show=False, threshold=0.5)
-    assert result == [(None, 0)]
-
-def test_empty_target(mock_model):
-    src = make_chapters(["A"], ["alpha"])
-    tgt = make_chapters([], [])
-    mapper = Mapper(src, tgt, keep_unmatched_source_chapters=True,
-                    keep_unmatched_target_chapters=False)
-    result = mapper.run_auto(mock_model, force_show=False, threshold=0.5)
-    assert result == [(0, None)]
+    assert result == expected
 
 
 def test_auto_match_uses_content_html():

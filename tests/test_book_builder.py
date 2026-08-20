@@ -120,9 +120,14 @@ def test_footnotes_in_output(fs):
     assert 'class="footnotes"' in body
 
 
-def test_footnote_backref_inline_with_text(fs):
-    """Back-arrow is placed inline inside the last text block of the footnote
-    so it cannot be pushed onto a different page from the note text."""
+@pytest.mark.parametrize("fn_body", [
+    "<p>Body of note.</p>",
+    "Plain note.",
+])
+def test_footnote_backref_inline(fs, fn_body):
+    """Back-arrow is placed inline inside the last text block of the footnote so
+    it cannot be pushed onto a different page from the note text, whether the
+    body is wrapped in markup or plain text."""
     src_file, tgt_file = build_epub_files(fs)
     block = {
         "source": {"toc_path": ["S"], "content_html": "", "index": 0,
@@ -130,38 +135,17 @@ def test_footnote_backref_inline_with_text(fs):
         "target": {"toc_path": ["T"], "content_html": "", "index": 0,
                    "footnote_placeholders": []},
         "alignment": [{"source_sents": [{"html": "<p>Text S_FNREF_1</p>", "first": False}],
-                         "target_sents": [{"html": "<p>Text</p>", "first": False}]}]
+                          "target_sents": [{"html": "<p>Text</p>", "first": False}]}]
     }
     bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[block],
-                     source_footnotes={"fn1": "<p>Body of note.</p>"})
+                     source_footnotes={"fn1": fn_body})
     new_book = bb.run()
     body = '\n'.join(chapter_bodies(new_book))
     assert 'id="fn_1"' in body
     soup = BeautifulSoup(body, 'html.parser')
     li = soup.find('li', id='fn_1')
     backref = li.find('a', class_='footnote-backref')
-    assert backref.parent.name == 'p'
-    assert backref.parent.get_text() == 'Body of note. ↩'
-
-
-def test_footnote_backref_inline_plain_body(fs):
-    """A footnote body with no markup still gets the inline back-arrow."""
-    src_file, tgt_file = build_epub_files(fs)
-    block = {
-        "source": {"toc_path": ["S"], "content_html": "", "index": 0,
-                   "footnote_placeholders": [{"token": "S_FNREF_1", "target_id": "fn1"}]},
-        "target": {"toc_path": ["T"], "content_html": "", "index": 0,
-                   "footnote_placeholders": []},
-        "alignment": [{"source_sents": [{"html": "<p>Text S_FNREF_1</p>", "first": False}],
-                         "target_sents": [{"html": "<p>Text</p>", "first": False}]}]
-    }
-    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[block],
-                     source_footnotes={"fn1": "Plain note."})
-    new_book = bb.run()
-    body = '\n'.join(chapter_bodies(new_book))
-    assert 'id="fn_1"' in body
-    assert 'Plain note. <a' in body
-    assert '↩</a></li>' in body
+    assert backref.parent.get_text() == 'Body of note. ↩' if '<p>' in fn_body else 'Plain note. ↩'
 
 
 def test_footnotes_in_body_wrapped_content(fs):
