@@ -251,3 +251,27 @@ def test_indent_wraps_inline_fragment():
 def test_epub_file_rejects_garbage(fs):
     fs.create_file("/fake/bad.epub", contents=b"this is not an epub")
     assert not EpubFile("/fake/bad.epub")
+
+
+def test_footnote_multiple_refs_same_body_deduped(fs):
+    """Two references to the same footnote body render one footnote item and
+    two links to it (plain-text refs with the same number share a body)."""
+    src_file, tgt_file = build_epub_files(fs)
+    block = {
+        "source": {"toc_path": ["S"], "content_html": "", "index": 0,
+                   "footnote_placeholders": [{"token": "S_FNREF_1", "target_id": "fn1"},
+                                              {"token": "S_FNREF_2", "target_id": "fn1"}]},
+        "target": {"toc_path": ["T"], "content_html": "", "index": 0,
+                   "footnote_placeholders": []},
+        "alignment": [{"source_sents": [{"html": "<p>A S_FNREF_1 B S_FNREF_2</p>", "first": False}],
+                          "target_sents": [{"html": "<p>C</p>", "first": False}]}]
+    }
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[block],
+                     source_footnotes={"fn1": "<p>Shared note.</p>"})
+    new_book = bb.run()
+    body = '\n'.join(chapter_bodies(new_book))
+    soup = BeautifulSoup(body, 'html.parser')
+    assert len(soup.find_all('li', id=lambda x: x and x.startswith('fn_'))) == 1
+    assert 'Shared note.' in body
+    assert body.count('href="#fn_1"') == 2
+    assert 'S_FNREF_' not in body

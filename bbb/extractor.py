@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, Tuple, Set, OrderedDict
 from bs4 import BeautifulSoup, Comment, NavigableString, ProcessingInstruction
 
 from bbb import utils
-from bbb.constants import HEADING_TAGS
+from bbb.constants import HEADING_TAGS, BLOCK_TAGS
 from bbb.epub_file import EpubFile
 
 HEADINGISH_TAGS = {'hgroup', *HEADING_TAGS}
@@ -29,6 +29,8 @@ KEEP_CHAPTER_TYPES = {
 }
 
 FN_MARKER_RE = re.compile(r'[\d]+|[∗*†‡§¶‖]|\[\d+\]|\(\d+\)')
+PLAIN_FN_REF_RE = re.compile(r'\[(\d+)\]')
+PLAIN_FN_BODY_TAGS = BLOCK_TAGS - HEADING_TAGS
 
 
 class FootnoteExtractor:
@@ -179,6 +181,150 @@ class FootnoteExtractor:
                 'target_id': fragment
             })
             a_tag.replace_with(token)
+
+        if counter == 0:
+            self._remove_plain_footnotes(soup, full_href)
+
+    def _plain_sections(self, soup) -> List[List[Tag]]:
+        body = soup.body if soup.body else soup
+        sections: List[List[Tag]] = []
+        current: List[Tag] = []
+        for el in body.find_all(True):
+            name = getattr(el, 'name', None)
+            if not name:
+                continue
+            if name in TAG_BLACKLIST:
+                continue
+            if name in HEADING_TAGS:
+                if current:
+                    sections.append(current)
+                    current = []
+                continue
+            if name not in PLAIN_FN_BODY_TAGS:
+                continue
+            if any(a.name in PLAIN_FN_BODY_TAGS for a in el.parents):
+                continue
+            current.append(el)
+        if current:
+            sections.append(current)
+        return sections
+
+    def _plain_markers(self, blocks) -> List[Dict[str, Any]]:
+        markers = []
+        for idx, el in enumerate(blocks):
+            text = _normalize_text(el.get_text(' '))
+            m = re.match(r'^\[(\d+)\]\s*(.+)$', text, re.S)
+            if m and len(m.group(2).strip()) >= 3:
+                markers.append({'num': int(m.group(1)), 'elem': el, 'idx': idx})
+        return markers
+
+    def _plain_refs(self, soup, blocks, exclude_ids=frozenset()) -> List[Dict[str, Any]]:
+        block_ids = {id(el): idx for idx, el in enumerate(blocks)}
+        refs = []
+        body = soup.body if soup.body else soup
+        for node in body.find_all(string=True):
+            if not isinstance(node, NavigableString):
+                continue
+            parent = node.parent
+            if parent.find_parent(('a', 'sup', 'script', 'style')):
+                continue
+            blk = parent
+            while blk is not None and blk.name not in PLAIN_FN_BODY_TAGS:
+                blk = blk.parent
+            if blk is None or id(blk) not in block_ids or id(blk) in exclude_ids:
+                continue
+            for m in PLAIN_FN_REF_RE.finditer(str(node)):
+                refs.append({
+                    'num': int(m.group(1)),
+                    'node': node,
+                    'match': m,
+                    'block_idx': block_ids[id(blk)]
+                })
+        refs.sort(key=lambda r: r['block_idx'])
+        return refs
+
+    def _validate_plain(self, markers, refs):
+        if not markers or not refs:
+            return None
+        last_ref = max(r['block_idx'] for r in refs)
+        group = [m for m in markers if m['idx'] > last_ref]
+        if not group:
+            return None
+        nums = [m['num'] for m in group]
+        if nums != list(range(1, len(nums) + 1)):
+            return None
+        ref_nums = set(r['num'] for r in refs)
+        if not all(n in ref_nums for n in nums):
+            return None
+        return group
+
+    def _strip_plain_marker_html(self, el) -> str:
+        parts = list(el.contents)
+        if parts and isinstance(parts[0], NavigableString):
+            text = str(parts[0]).lstrip()
+            stripped = re.sub(r'^\[(\d+)\]\s*', '', text, count=1)
+            if stripped != text:
+                parts[0] = NavigableString(stripped)
+        return ''.join(str(c) for c in parts)
+
+    def _remove_plain_footnotes(self, soup, full_href) -> None:
+        if not hasattr(self, '_plain_seq'):
+            self._plain_seq = 0
+        counter = 0
+        for blocks in self._plain_sections(soup):
+            markers = self._plain_markers(blocks)
+            if not markers:
+                continue
+            refs = self._plain_refs(soup, blocks, exclude_ids={id(m['elem']) for m in markers})
+            group = self._validate_plain(markers, refs)
+            if group is None:
+                continue
+            marker_elems = {m['elem'] for m in markers}
+            group_idxs = [m['idx'] for m in group]
+            num_to_fid = {}
+            for i, m in enumerate(group):
+                self._plain_seq += 1
+                fid = f'{self.host.fn_prefix}PTFN_{self._plain_seq}'
+                num_to_fid[m['num']] = fid
+                body_html = self._strip_plain_marker_html(m['elem'])
+                if i + 1 < len(group_idxs):
+                    for b in blocks[m['idx'] + 1:group_idxs[i + 1]]:
+                        if b in marker_elems:
+                            continue
+                        if not _normalize_text(b.get_text(' ')):
+                            continue
+                        body_html += str(b)
+                        b.decompose()
+                ancestor = m['elem'].parent
+                m['elem'].decompose()
+                self._prune_empty_ancestors(ancestor)
+                self.footnotes[fid] = body_html
+                self._footnote_files[fid] = full_href
+
+            by_node = {}
+            for r in refs:
+                if r['block_idx'] >= group_idxs[0]:
+                    continue
+                if r['num'] not in num_to_fid:
+                    continue
+                counter += 1
+                token = f'{self.host.fn_prefix}FNREF_{counter}'
+                self.current_refs.append({
+                    'token': token,
+                    'target_id': num_to_fid[r['num']]
+                })
+                by_node.setdefault(r['node'], []).append(
+                    (r['match'].start(), r['match'].end(), token)
+                )
+            for node, replacements in by_node.items():
+                parts = []
+                last = 0
+                for start, end, token in sorted(replacements):
+                    parts.append(str(node)[last:start])
+                    parts.append(token)
+                    last = end
+                parts.append(str(node)[last:])
+                node.replace_with(''.join(parts))
 
     def _is_note_epubtype(self, a_tag) -> bool:
         for node in (a_tag, *a_tag.parents):
