@@ -272,6 +272,8 @@ class BookBuilder:
             num = used_numbers[0] + 1
             used_numbers[0] = num
             fn_body = global_footnotes.get(target_id, '')
+            if not fn_body.strip():
+                return f'<sup class="footnote-ref">{num}</sup>'
             ref_id = f'fnref_{num}'
             fn_id = f'fn_{num}'
             footnote_items.append({

@@ -120,6 +120,34 @@ class FootnoteExtractor:
         self.footnotes = footnote_bodies
         return self.footnotes
 
+    def _footnote_container(self, elem) -> Tag:
+        marker_text = elem.get_text(strip=True)
+        if FN_MARKER_RE.fullmatch(marker_text):
+            for sibling in elem.find_next_siblings():
+                if sibling.get('id') or sibling.name in HEADING_TAGS:
+                    break
+                sibling.decompose()
+            return elem
+        if elem.contents:
+            return elem
+        parent = elem.parent
+        if parent is not None:
+            first_child = next((c for c in parent.contents
+                                if not (isinstance(c, NavigableString)
+                                        and not str(c).strip())), None)
+            if first_child is elem:
+                return parent
+        return elem
+
+    def _prune_empty_ancestors(self, node) -> None:
+        while node is not None and node.name != 'body':
+            if any(c for c in node.contents
+                   if not (isinstance(c, NavigableString) and not str(c).strip())):
+                break
+            parent = node.parent
+            node.decompose()
+            node = parent
+
     def remove_from(self, soup: BeautifulSoup, full_href: Optional[str] = None) -> None:
         self.current_refs = []
 
@@ -127,8 +155,12 @@ class FootnoteExtractor:
             if self._footnote_files.get(fid) != full_href:
                 continue
             elem = soup.find(id=fid)
-            if elem:
-                elem.decompose()
+            if not elem:
+                continue
+            container = self._footnote_container(elem) if self.footnotes[fid].strip() else elem
+            ancestor = container.parent
+            container.decompose()
+            self._prune_empty_ancestors(ancestor)
 
         counter = 0
         for a_tag in soup.find_all('a', href=True):
@@ -136,6 +168,8 @@ class FootnoteExtractor:
             if not is_fn:
                 continue
             if fragment not in self.footnotes:
+                continue
+            if not self.footnotes[fragment].strip():
                 continue
 
             counter += 1

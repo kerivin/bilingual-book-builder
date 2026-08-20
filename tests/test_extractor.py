@@ -249,6 +249,85 @@ def test_footnote_body_empty_inline_anchor_mid_paragraph(fs):
     assert fn_map.get("FNanchor_1_1", "") == ""
 
 
+def test_footnote_body_removed_from_chapter_content(fs):
+    """Gutenberg-style: the footnote body div must be removed from the chapter
+    content so the footnote text is not rendered inline (it is re-rendered in
+    the footnote list). Regression: the body text appeared inline AND as a
+    footnote item."""
+    ch1 = """<html><body>
+    <h1>Ch One</h1>
+    <p>Text<a id="FNanchor_1_1"/><a class="fnanchor pginternal" href="f.xhtml#Footnote_1_1">[1]</a> end.</p>
+    <div class="footnote"><p><a id="Footnote_1_1"/><a href="f.xhtml#FNanchor_1_1" class="pginternal"><span class="label">[1]</span></a>This is the footnote body.</p></div>
+    </body></html>"""
+    ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
+    epub_bytes = make_epub_bytes(
+        [{"filename": "f.xhtml", "content": ch1},
+         {"filename": "g.xhtml", "content": ch2}],
+        toc_entries=[("Ch One", "f.xhtml"), ("Ch Two", "g.xhtml")]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
+                                 min_chars=1).get_chapter_list()
+    content = chapters[0]["content_html"]
+    assert "This is the footnote body." in fn_map["Footnote_1_1"]
+    assert "This is the footnote body." not in content
+    assert "S_FNREF_1" in content
+
+
+def test_footnote_backref_not_tokenized(fs):
+    """Gutenberg-style backref links (targeting the reference anchor inside the
+    main text) must not become footnote references. Regression: backrefs were
+    tokenized, producing empty footnote items and stray superscripts."""
+    ch1 = """<html><body>
+    <h1>Ch One</h1>
+    <p>Text<a id="FNanchor_1_1"/><a class="fnanchor pginternal" href="f.xhtml#Footnote_1_1">[1]</a> end.</p>
+    <div class="footnote"><p><a id="Footnote_1_1"/><a href="f.xhtml#FNanchor_1_1" class="pginternal"><span class="label">[1]</span></a>Real note text.</p></div>
+    </body></html>"""
+    ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
+    epub_bytes = make_epub_bytes(
+        [{"filename": "f.xhtml", "content": ch1},
+         {"filename": "g.xhtml", "content": ch2}],
+        toc_entries=[("Ch One", "f.xhtml"), ("Ch Two", "g.xhtml")]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
+                                 min_chars=1).get_chapter_list()
+    placeholders = chapters[0]["footnote_placeholders"]
+    targets = [p["target_id"] for p in placeholders]
+    assert targets == ["Footnote_1_1"]
+    assert "FNanchor_1_1" not in targets
+    assert "FNanchor_1_1" not in chapters[0]["content_html"]
+    assert "Real note text." not in chapters[0]["content_html"]
+
+
+def test_footnote_marker_sibling_body_removed(fs):
+    """Marker element + following sibling paragraphs: the whole footnote group
+    must be removed from the chapter content."""
+    ch1 = """<html><body>
+    <h1>Ch One</h1>
+    <p>Ref<a href="#fn1"><sup>1</sup></a> here.</p>
+    <div class="footnotes">
+    <p id="fn1">[1]</p><p>First part of the note.</p><p>Second part.</p>
+    </div>
+    </body></html>"""
+    ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
+    epub_bytes = make_epub_bytes(
+        [{"filename": "f.xhtml", "content": ch1},
+         {"filename": "g.xhtml", "content": ch2}],
+        toc_entries=[("Ch One", "f.xhtml"), ("Ch Two", "g.xhtml")]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
+                                 min_chars=1).get_chapter_list()
+    content = chapters[0]["content_html"]
+    assert "First part of the note." in fn_map["fn1"]
+    assert "First part of the note." not in content
+    assert "Second part." not in content
+
+
 def test_footnote_simple_sup(fs):
     """Basic superscript footnote: link in <sup>, body in same file.
     Header fallback does NOT remove footnotes, so body text remains."""

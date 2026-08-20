@@ -184,6 +184,29 @@ def test_footnotes_in_body_wrapped_content(fs):
     assert 'footnote-separator' in body
 
 
+def test_empty_footnote_body_skipped(fs):
+    """A footnote token whose body is empty must not produce an empty <li>
+    item or a dangling reference. Regression: backref-tokenized footnotes
+    rendered empty footnote items."""
+    src_file, tgt_file = build_epub_files(fs)
+    block = {
+        "source": {"toc_path": ["S"], "content_html": "", "index": 0,
+                   "footnote_placeholders": [{"token": "S_FNREF_1", "target_id": "fn1"}]},
+        "target": {"toc_path": ["T"], "content_html": "", "index": 0,
+                   "footnote_placeholders": []},
+        "alignment": [{"source_sents": [{"html": "<p>Text S_FNREF_1</p>", "first": False}],
+                         "target_sents": [{"html": "<p>Text</p>", "first": False}]}]
+    }
+    bb = BookBuilder(source_book=src_file, target_book=tgt_file, blocks=[block],
+                     source_footnotes={"fn1": "   "})
+    new_book = bb.run()
+    body = '\n'.join(chapter_bodies(new_book))
+    assert 'id="fn_1"' not in body
+    assert 'class="footnotes"' not in body
+    assert 'fnref_1' not in body
+    assert 'S_FNREF_1' not in body
+
+
 def test_styles_not_copied(fs):
     """The built book links only its own generic.css, never the source/target styles."""
     src_bytes = make_epub_bytes([], title="Src", styles=[("src_style.css", b"body{color:red;}")])
