@@ -1,0 +1,39 @@
+name: Install check
+
+on: [push, pull_request]
+
+jobs:
+  install-cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Clean install of the cpu extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[cpu]" pytest pyfakefs
+
+      - name: Import check
+        run: python -c "from bbb import BBB; from bbb.bbb import Config"
+
+      - name: Run test suite
+        run: pytest tests/ -q
+
+      - name: Real CLI run (extract only, no model download)
+        run: |
+          python - <<'PY'
+          import sys; sys.path.insert(0, 'tests')
+          from conftest import make_epub_bytes, create_chapter_html
+          for name in ("src", "tgt"):
+              b = make_epub_bytes(
+                  [{"filename": f"{name}1.xhtml", "content": create_chapter_html("Ch1", "First chapter. It has two sentences.")},
+                   {"filename": f"{name}2.xhtml", "content": create_chapter_html("Ch2", "Second chapter. Also two sentences.")}],
+                  title=name)
+              open(f"{name}.epub", "wb").write(b)
+          print("fixtures written")
+          PY
+          python -m bbb -s src.epub -t tgt.epub -sl en -tl ru --only extract -o /tmp/bbb_check.epub
