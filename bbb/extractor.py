@@ -350,15 +350,14 @@ class Extractor:
                 root_id = '__default__'
 
         region_html = OrderedDict((aid, []) for aid in anchor_elements)
-        current_anchor = root_id if root_id in anchor_elements else None
 
         def walk(node, anchor):
             if isinstance(node, NavigableString):
                 if anchor is not None:
                     region_html[anchor].append(str(node))
-                return
+                return anchor
             if not hasattr(node, 'name'):
-                return
+                return anchor
 
             node_anchor = anchor
             if node.get('id') in anchor_elements:
@@ -370,9 +369,10 @@ class Extractor:
                 region_html[node_anchor].append(str(node))
             else:
                 for child in node.children:
-                    walk(child, node_anchor)
+                    anchor = walk(child, anchor)
+            return node_anchor
 
-        walk(root, current_anchor)
+        walk(root, root_id if root_id in anchor_elements else None)
         return {aid: ''.join(pieces) for aid, pieces in region_html.items()}
 
     def _extract_from_toc(self) -> List[Dict[str, Any]]:

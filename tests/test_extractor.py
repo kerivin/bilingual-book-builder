@@ -143,6 +143,69 @@ def test_heading_with_styles(fs):
     assert chapters[0]["toc_path"][0] in ("Chapter I", "Section A")
 
 
+def test_multi_anchor_single_file_body_regions(fs):
+    """Chapters in one file split by sibling anchors: the body text after each
+    anchored heading must be attributed to that chapter's region. Regression:
+    the region walker stopped capturing after the anchored heading, collapsing
+    every chapter to just its heading text (real book pg62215 produced 4
+    near-empty chapters instead of ~34)."""
+    body = """<html><body>
+    <h4 id="pgepubid00001"><a id="c1">I</a></h4>
+    <h4>First Chapter Title</h4>
+    <p>First chapter body sentence.</p>
+    <p>More first chapter text.</p>
+    <h4 id="pgepubid00002"><a id="c2">II</a></h4>
+    <h4>Second Chapter Title</h4>
+    <p>Second chapter body sentence.</p>
+    <p>More second chapter text.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes(
+        [{"filename": "ch.xhtml", "content": body}],
+        toc_entries=[("First", "ch.xhtml#pgepubid00001"),
+                     ("Second", "ch.xhtml#pgepubid00002")]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
+                            min_chars=1).get_chapter_list()
+    assert len(chapters) == 2
+    first = chapters[0]["content_html"]
+    second = chapters[1]["content_html"]
+    assert "First chapter body sentence." in first
+    assert "More first chapter text." in first
+    assert "Second chapter body sentence." in second
+    assert "More second chapter text." in second
+    assert "First chapter body" not in second
+
+
+def test_multi_anchor_single_file_root_parent(fs):
+    """A file with a parent TOC entry (no anchor) gets a root region holding
+    everything before the first anchored chapter; anchored chapters still
+    capture their own following body."""
+    body = """<html><body>
+    <h2>Book Title</h2>
+    <p>Opening front matter paragraph.</p>
+    <h4 id="a1"><a id="c1">One</a></h4>
+    <p>Body of chapter one.</p>
+    <h4 id="a2"><a id="c2">Two</a></h4>
+    <p>Body of chapter two.</p>
+    </body></html>"""
+    epub_bytes = make_epub_bytes(
+        [{"filename": "ch.xhtml", "content": body}],
+        toc_entries=[("Book", "ch.xhtml"),
+                     ("Ch One", "ch.xhtml#a1"),
+                     ("Ch Two", "ch.xhtml#a2")]
+    )
+    path = write_epub_to_fake(fs, epub_bytes)
+    epub_file = EpubFile(path)
+    chapters, _ = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
+                            min_chars=1).get_chapter_list()
+    assert len(chapters) == 3
+    assert "Opening front matter paragraph." in chapters[0]["content_html"]
+    assert "Body of chapter one." in chapters[1]["content_html"]
+    assert "Body of chapter two." in chapters[2]["content_html"]
+
+
 def test_empty_book(fs):
     epub_bytes = make_epub_bytes([])
     path = write_epub_to_fake(fs, epub_bytes)
