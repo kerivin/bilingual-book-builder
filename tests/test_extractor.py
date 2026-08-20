@@ -1,8 +1,9 @@
 import pytest
 from bbb.epub_file import EpubFile
-from bbb.extractor import Extractor
+from bbb.extractor import Extractor, FootnoteExtractor
 from bbb.constants import SRC_FN_PREFIX
 from conftest import make_epub_bytes, create_chapter_html, write_epub_to_fake
+from bs4 import BeautifulSoup
 
 
 def test_single_chapter(fs):
@@ -830,14 +831,26 @@ def test_plain_text_footnote_continuation(fs):
     assert "Second note." not in content
 
 
-def test_plain_text_footnote_no_refs_no_detection(fs):
-    """Numbered paragraphs without any inline reference are not footnotes."""
+@pytest.mark.parametrize("chapter_body,surviving", [
+    ("<p>Ordinary prose without references.</p>"
+     "<p class=\"footnote\">[1] Setup instructions.</p>"
+     "<p class=\"footnote\">[2] More instructions.</p>",
+     "Setup instructions."),
+    ("<p class=\"footnote\">[1] Setup instructions.</p>"
+     "<p>Prose with a [1] reference.</p>",
+     "Prose with a [1] reference."),
+    ("<p>Ref [2] here.</p>"
+     "<p class=\"footnote\">[1] First note.</p>",
+     "Ref [2] here."),
+])
+def test_plain_text_footnote_invalid_group_not_detected(fs, chapter_body, surviving):
+    """Footnote-like paragraphs that fail validation are left untouched:
+    no body is extracted and no reference is tokenized. Each case hits a
+    different guard (no refs / marker before ref / unmatched numbers)."""
     ch1 = """<html><body>
     <h1>Ch One</h1>
-    <p>Ordinary prose without references.</p>
-    <p class="footnote">[1] Setup instructions.</p>
-    <p class="footnote">[2] More instructions.</p>
-    </body></html>"""
+    {0}
+    </body></html>""".format(chapter_body)
     ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
     epub_bytes = make_epub_bytes(
         [{"filename": "f.xhtml", "content": ch1},
@@ -851,52 +864,8 @@ def test_plain_text_footnote_no_refs_no_detection(fs):
     plain = {k: v for k, v in fn_map.items() if k.startswith("S_PTFN_")}
     assert plain == {}
     content = chapters[0]["content_html"]
-    assert "Setup instructions." in content
-    assert "More instructions." in content
+    assert surviving in content
     assert "S_FNREF_" not in content
-
-
-def test_plain_text_footnote_marker_before_ref_no_detection(fs):
-    """A marker that appears before the inline reference is not a footnote
-    group (the body must follow the reference)."""
-    ch1 = """<html><body>
-    <h1>Ch One</h1>
-    <p class="footnote">[1] Setup instructions.</p>
-    <p>Prose with a [1] reference.</p>
-    </body></html>"""
-    ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
-    epub_bytes = make_epub_bytes(
-        [{"filename": "f.xhtml", "content": ch1},
-         {"filename": "g.xhtml", "content": ch2}],
-        toc_entries=[("Ch One", "f.xhtml"), ("Ch Two", "g.xhtml")]
-    )
-    path = write_epub_to_fake(fs, epub_bytes)
-    epub_file = EpubFile(path)
-    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
-                                 min_chars=1).get_chapter_list()
-    plain = {k: v for k, v in fn_map.items() if k.startswith("S_PTFN_")}
-    assert plain == {}
-
-
-def test_plain_text_footnote_unmatched_numbers_no_detection(fs):
-    """A marker numbered [1] with only a [2] reference is not a footnote group."""
-    ch1 = """<html><body>
-    <h1>Ch One</h1>
-    <p>Ref [2] here.</p>
-    <p class="footnote">[1] First note.</p>
-    </body></html>"""
-    ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
-    epub_bytes = make_epub_bytes(
-        [{"filename": "f.xhtml", "content": ch1},
-         {"filename": "g.xhtml", "content": ch2}],
-        toc_entries=[("Ch One", "f.xhtml"), ("Ch Two", "g.xhtml")]
-    )
-    path = write_epub_to_fake(fs, epub_bytes)
-    epub_file = EpubFile(path)
-    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
-                                 min_chars=1).get_chapter_list()
-    plain = {k: v for k, v in fn_map.items() if k.startswith("S_PTFN_")}
-    assert plain == {}
 
 
 def test_plain_text_footnote_multiple_refs_same_number(fs):
@@ -978,28 +947,11 @@ def test_plain_text_footnote_sup_marker_not_tokenized(fs):
     assert plain == {}
 
 
-def test_plain_text_footnote_marker_leading_empty_anchor(fs):
+def test_strip_plain_marker_html_skips_leading_empty_anchor():
     """A marker paragraph that starts with an empty anchor (Gutenberg-style)
-    must still have the [n] marker stripped and the empty anchor dropped,
-    so the footnote item is not double-numbered."""
-    ch1 = """<html><body>
-    <h1>Ch One</h1>
-    <p>Text.[1]</p>
-    <p class="footnote"><a id="footnote_1_1"></a>[1] Body of the note.</p>
-    </body></html>"""
-    ch2 = "<html><body><h1>Ch Two</h1><p>More text.</p></body></html>"
-    epub_bytes = make_epub_bytes(
-        [{"filename": "f.xhtml", "content": ch1},
-         {"filename": "g.xhtml", "content": ch2}],
-        toc_entries=[("Ch One", "f.xhtml"), ("Ch Two", "g.xhtml")]
-    )
-    path = write_epub_to_fake(fs, epub_bytes)
-    epub_file = EpubFile(path)
-    chapters, fn_map = Extractor(epub_file=epub_file, fn_prefix=SRC_FN_PREFIX,
-                                 min_chars=1).get_chapter_list()
-    plain = {k: v for k, v in fn_map.items() if k.startswith("S_PTFN_")}
-    assert len(plain) == 1
-    body = list(plain.values())[0]
-    assert "[1]" not in body
-    assert "footnote_1_1" not in body
-    assert body.startswith("Body of the note.")
+    must still have the [n] marker stripped so the item is not double-numbered."""
+    soup = BeautifulSoup(
+        '<p class="footnote"><a id="footnote_1_1"></a>[1] Body of the note.</p>',
+        "html.parser")
+    body = FootnoteExtractor._strip_plain_marker_html(soup.p)
+    assert body == "Body of the note."

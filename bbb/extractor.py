@@ -267,7 +267,8 @@ class FootnoteExtractor:
             return None
         return group
 
-    def _strip_plain_marker_html(self, el) -> str:
+    @staticmethod
+    def _strip_plain_marker_html(el) -> str:
         parts = list(el.contents)
         while parts:
             node = parts[0]
