@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from ebooklib import epub
 import numpy as np
-from bbb.bbb import BBB
+from bbb.bbb import BBB, Config
 from conftest import make_epub_bytes, create_chapter_html, write_epub_to_fake
 
 
@@ -50,10 +50,10 @@ def test_basic_bilingual_book(fs, mock_heavy_deps):
     tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
     out_path = "/fake/out.epub"
 
-    bbb = BBB(source_path=src_path, target_path=tgt_path,
+    bbb = BBB(Config(source_path=src_path, target_path=tgt_path,
               output=out_path, verbosity='quiet',
               source_language='en', target_language='de',
-              auto_threshold=0.5, simple_split=True)
+              auto_threshold=0.5, simple_split=True))
     bbb.run()
 
     with open(out_path, 'rb') as f:
@@ -77,10 +77,10 @@ def test_keep_unmatched_source(fs, mock_heavy_deps):
     tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
     out_path = "/fake/out.epub"
 
-    bbb = BBB(source_path=src_path, target_path=tgt_path,
+    bbb = BBB(Config(source_path=src_path, target_path=tgt_path,
               output=out_path, verbosity='quiet',
               source_language='en', target_language='de',
-              keep_unmatched_source_chapters=True, simple_split=True)
+              keep_unmatched_source_chapters=True, simple_split=True))
     bbb.run()
 
     with open(out_path, 'rb') as f:
@@ -104,9 +104,9 @@ def test_cover_option_target(fs, mock_heavy_deps):
     tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
     out_path = "/fake/out.epub"
 
-    bbb = BBB(source_path=src_path, target_path=tgt_path,
+    bbb = BBB(Config(source_path=src_path, target_path=tgt_path,
               output=out_path, verbosity='quiet',
-              cover='target', simple_split=True)
+              cover='target', simple_split=True))
     bbb.run()
 
     with open(out_path, 'rb') as f:
@@ -123,8 +123,8 @@ def test_only_extract(fs, mock_heavy_deps):
     tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
 
     with patch('bbb.bbb.epub.write_epub') as mock_write:
-        bbb = BBB(source_path=src_path, target_path=tgt_path,
-                  only='extract', verbosity='quiet')
+        bbb = BBB(Config(source_path=src_path, target_path=tgt_path,
+                  only='extract', verbosity='quiet'))
         bbb.run()
     mock_write.assert_not_called()
 
@@ -136,7 +136,7 @@ def test_invalid_epub_does_not_crash(fs, mock_heavy_deps):
     tgt_path = write_epub_to_fake(fs, tgt_bytes, "tgt.epub")
     out_path = "/fake/out.epub"
 
-    bbb = BBB(source_path="/fake/bad.epub", target_path=tgt_path,
-              output=out_path, verbosity='quiet', simple_split=True)
+    bbb = BBB(Config(source_path="/fake/bad.epub", target_path=tgt_path,
+              output=out_path, verbosity='quiet', simple_split=True))
     bbb.run()
     assert not fs.exists(out_path)

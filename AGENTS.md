@@ -21,14 +21,16 @@ Builds a parallel-text EPUB with sentences aligned side-by-side from two EPUBs o
 
 ## Architecture
 
-Entry point `bbb/cli.py` → `BBB` (`bbb/bbb.py`) orchestrates: extract → map → align → build EPUB. `bbb/__main__.py` is only used by `python -m bbb` and the PyInstaller build (`.github/workflows/build.yml`, manual dispatch).
+Entry point `bbb/cli.py` → `BBB` (`bbb/bbb.py`) orchestrates: extract → map → align → build EPUB. `BBB` is constructed with a single `Config` dataclass (`bbb/bbb.py`). `bbb/__main__.py` is only used by `python -m bbb` and the PyInstaller build (`.github/workflows/build.yml`, manual dispatch).
 
-- `bbb/extractor.py` — chapters + footnotes from an EPUB.
-- `bbb/mapper.py` — chapter matching (auto via SentenceTransformer + threshold, or interactive `-m`). Auto-match signatures are content-based: title + first/last ~1000 chars of text built from the chapter's `content_html`.
-- `bbb/splitter.py` — sentence splitting: wtpsplit `SaT` (default) or `sentence_splitter.SentenceSplitter` with `--simple-split`.
-- `bbb/aligner.py` — bertalign alignment at sentence level.
-- `bbb/html_tokenizer.py` — HTML → sentences with paragraph-start tracking and HTML-fragment preservation.
-- `bbb/book_builder.py` — EPUB generation with HTML preservation.
+- `bbb/extractor.py` — chapters + footnotes from an EPUB (`FootnoteExtractor` owns the footnote reference/body logic).
+- `bbb/mapper.py` — chapter matching (auto via SentenceTransformer + threshold, or interactive `-m`). The DP lives in the pure functions `match_chapters` / `chapter_signature` (unit-tested in `tests/test_mapper.py`). Auto-match signatures are content-based: title + first/last ~1000 chars of text built from the chapter's `content_html`.
+- `bbb/splitter.py` — sentence splitting: wtpsplit `SaT` (default) or `sentence_splitter.SentenceSplitter` with `--simple-split` (`SimpleWrapper`/`SatWrapper` share `_paragraphs_of_lines`).
+- `bbb/aligner.py` — bertalign alignment at sentence level; `merge_rows` interleaves unmatched sentences into the rows.
+- `bbb/html_tokenizer.py` — HTML → sentences with paragraph-start tracking and HTML-fragment preservation (single-pass fragment extraction; `_leaf_blocks` helper).
+- `bbb/book_builder.py` — EPUB generation with HTML preservation (`GENERIC_CSS` is the built-in aggressive reset).
+- `bbb/progress.py` — `ProgressReporter` (thread-safe progress + optional callback), injected into `Aligner`/`BookBuilder`.
+- `bbb/constants.py` — shared tag sets (`BLOCK_TAGS`, `HEADING_TAGS`) and footnote prefixes.
 
 ## Testing
 

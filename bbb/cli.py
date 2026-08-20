@@ -2,14 +2,17 @@ import argparse
 import logging
 from tqdm import tqdm
 
+from bbb.bbb import BBB, Config
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description='Create a bilingual parallel text EPUB from two EPUB books in different languages.'
     )
     parser.add_argument('-s', '--source', type=str, required=True, help='Path to source (original) language EPUB')
     parser.add_argument('-t', '--target', type=str, required=True, help='Path to target (translation) language EPUB. Its settings have priority over source EPUB')
-    parser.add_argument('-sl', '--source-language', type=str, default=None, help='Source language code, e.g. \"en\" (auto-detect if omitted)')
-    parser.add_argument('-tl', '--target-language', type=str, default=None, help='Target language code, e.g. \"ru\" (auto-detect if omitted)')
+    parser.add_argument('-sl', '--source-language', type=str, default=None, help='Source language code, e.g. "en" (auto-detect if omitted)')
+    parser.add_argument('-tl', '--target-language', type=str, default=None, help='Target language code, e.g. "ru" (auto-detect if omitted)')
     parser.add_argument('-o', '--output', type=str, default='bilingual', help='Output EPUB file (default: bilingual)')
     parser.add_argument('-m', '--manual', action='store_true', default=False, help='Match chapters manually in the interactive mode')
     parser.add_argument('--threads', type=int, default=1, help='How many parallel threads for book processing')
@@ -22,20 +25,44 @@ def main() -> int:
     parser.add_argument('--split-model', type=str, default='sat-3l', help='Name or path to sentence splitter model (download sat-3l if omitted)')
     parser.add_argument('--simple-split', action='store_true', default=False, help='Use fast heuristic sentence splitting instead of the split-model')
     parser.add_argument('-v', '--verbosity', choices=['silent', 'progress', 'verbose'], default='progress', help='Silent (no progress), Progress (show progress bars), Verbose (all messages)')
-    
+
     args = parser.parse_args()
     if args.only == 'auto-match' and args.manual:
         parser.error('--only auto-match cannot be combined with --manual')
-    
+
     _setup_logger(args.verbosity)
-    
+    config = Config(
+        source_path=args.source,
+        target_path=args.target,
+        source_language=args.source_language,
+        target_language=args.target_language,
+        output=args.output,
+        manual=args.manual,
+        threads=args.threads,
+        auto_threshold=args.auto_threshold,
+        only=args.only,
+        keep_unmatched_source_chapters=args.keep_source_chapters,
+        keep_unmatched_target_chapters=args.keep_target_chapters,
+        cover=args.cover,
+        align_model=args.align_model,
+        split_model=args.split_model,
+        simple_split=args.simple_split,
+        verbosity=args.verbosity,
+        progress_callback=_make_progress_callback(args.verbosity),
+    )
+    BBB(config).run()
+
+    return 0
+
+
+def _make_progress_callback(verbosity):
     bars = {}
     def progress_callback(phase_id, description: str, step: int, total: int, message: str = None):
-        if args.verbosity == 'silent':
+        if verbosity == 'silent':
             return
 
         if step == 0:
-            bars[phase_id] = tqdm(total = total, desc = description or message or phase_id)
+            bars[phase_id] = tqdm(total=total, desc=description or message or phase_id)
         elif phase_id in bars:
             current = bars[phase_id].n
             if step > current:
@@ -45,29 +72,8 @@ def main() -> int:
             if step >= total:
                 bars[phase_id].close()
                 del bars[phase_id]
+    return progress_callback
 
-    from bbb import BBB
-    BBB(
-        args.source,
-        args.target,
-        args.source_language,
-        args.target_language,
-        args.output,
-        args.manual,
-        args.threads,
-        args.auto_threshold,
-        args.only,
-        args.keep_source_chapters,
-        args.keep_target_chapters,
-        args.cover,
-        args.align_model,
-        args.split_model,
-        args.simple_split,
-        args.verbosity,
-        progress_callback,
-    ).run()
-
-    return 0
 
 def _get_log_level(verbosity):
     match verbosity:
@@ -78,6 +84,7 @@ def _get_log_level(verbosity):
         case _:
             return logging.INFO
 
+
 def _setup_logger(verbosity):
     modules = ['bbb', 'bertalign', 'sentence_transformers']
 
@@ -87,7 +94,7 @@ def _setup_logger(verbosity):
                 tqdm.write(msg, end='')
         def flush(self):
             pass
-    
+
     handler = logging.StreamHandler(stream=TqdmStream())
     handler.setFormatter(logging.Formatter('%(message)s'))
 

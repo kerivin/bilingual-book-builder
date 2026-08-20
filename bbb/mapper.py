@@ -2,7 +2,94 @@ import numpy as np
 from enum import IntEnum
 import logging
 from bs4 import BeautifulSoup
-from bbb import progress, utils
+from bbb import utils
+
+
+class MatchDirection(IntEnum):
+    DIAGONAL = 0
+    UP = 1
+    LEFT = 2
+
+
+def chapter_signature(chapter):
+    title = chapter.get('toc_path', [''])[-1]
+    full_text = chapter.get('full_text', '')
+    if not full_text:
+        full_text = BeautifulSoup(chapter.get('content_html', ''), 'html.parser').get_text(separator=' ')
+    if not full_text:
+        return title
+
+    text = full_text.replace('\n', ' ').strip()
+
+    length = 1000
+    if len(text) <= 2 * length:
+        body = text
+    else:
+        body = text[:length] + ' [B_SEP] ' + text[-length:]
+
+    return (title + ' [T_SEP] ' + body).strip()
+
+
+def match_chapters(sim, threshold: float):
+    """Dynamic-programming chapter matching over a similarity matrix.
+
+    Returns (pairs, unmatched_src, unmatched_tgt) where pairs are (src_idx, tgt_idx)
+    tuples sorted in reading order and the unmatched lists are sorted indices.
+    """
+    S, T = sim.shape
+    dp = np.full((S + 1, T + 1), -1e9)
+    dp[0, 0] = 0.0
+    back = np.zeros((S + 1, T + 1), dtype=int)
+
+    for i in range(S + 1):
+        for j in range(T + 1):
+            if i == 0 and j == 0:
+                continue
+            best = -1e9
+            best_pointer = None
+            if i > 0 and j > 0:
+                score = dp[i - 1, j - 1] + sim[i - 1, j - 1]
+                if score > best:
+                    best = score
+                    best_pointer = MatchDirection.DIAGONAL
+            if i > 0:
+                score = dp[i - 1, j]
+                if score > best:
+                    best = score
+                    best_pointer = MatchDirection.UP
+            if j > 0:
+                score = dp[i, j - 1]
+                if score > best:
+                    best = score
+                    best_pointer = MatchDirection.LEFT
+            dp[i, j] = best
+            back[i, j] = best_pointer
+
+    i, j = S, T
+    pairs = []
+    unmatched_src = []
+    unmatched_tgt = []
+    while i > 0 or j > 0:
+        if back[i, j] == MatchDirection.DIAGONAL:
+            i -= 1
+            j -= 1
+            if sim[i, j] >= threshold:
+                pairs.append((i, j))
+            else:
+                unmatched_src.append(i)
+                unmatched_tgt.append(j)
+        elif back[i, j] == MatchDirection.UP:
+            i -= 1
+            unmatched_src.append(i)
+        elif back[i, j] == MatchDirection.LEFT:
+            j -= 1
+            unmatched_tgt.append(j)
+
+    pairs.reverse()
+    unmatched_src.reverse()
+    unmatched_tgt.reverse()
+    return pairs, unmatched_src, unmatched_tgt
+
 
 class Mapper:
     def __init__(self, source_chapters, target_chapters, keep_unmatched_source_chapters: bool, keep_unmatched_target_chapters: bool):
@@ -88,19 +175,17 @@ class Mapper:
         self.log.info("\nCurrent mapping:\n")
         for s, t in self._iter_ordered_pairs():
             if s is not None and t is not None:
-                source_title = self._chapter_title(self.source, s)
-                source_preview = self._chapter_preview(self.source, s)
-                target_title = self._chapter_title(self.target, t)
-                target_preview = self._chapter_preview(self.target, t)
-                self.log.info(f"{source_title} ─ {target_title}\n{source_preview}\n{target_preview}")
+                self.log.info(f"{self._chapter_title(self.source, s)} ─ {self._chapter_title(self.target, t)}")
+                self.log.info(f"{self._chapter_preview(self.source, s)}")
+                self.log.info(f"{self._chapter_preview(self.target, t)}")
             elif s is not None:
-                source_title = self._chapter_title(self.source, s)
-                source_preview = self._chapter_preview(self.source, s)
-                self.log.info(f"{source_title} ─ (no target)\n{source_preview}\n─")
+                self.log.info(f"{self._chapter_title(self.source, s)} ─ (no target)")
+                self.log.info(f"{self._chapter_preview(self.source, s)}")
+                self.log.info("─")
             elif t is not None:
-                target_title = self._chapter_title(self.target, t)
-                target_preview = self._chapter_preview(self.target, t)
-                self.log.info(f"(no source) ─ {target_title}\n─\n{target_preview}")
+                self.log.info(f"(no source) ─ {self._chapter_title(self.target, t)}")
+                self.log.info("─")
+                self.log.info(f"{self._chapter_preview(self.target, t)}")
             utils.print_horizontal_line(self.log.info)
 
     def _export_mapping(self):
@@ -115,7 +200,7 @@ class Mapper:
         target_index = 0
         history = []
 
-        self._show_chapter_lists_compact()        
+        self._show_chapter_lists_compact()
         print("\nMatch each pair.\n")
 
         while source_index < self.source_count or target_index < self.target_count:
@@ -224,24 +309,6 @@ class Mapper:
         if (len(self.source) < len(self.target) / 2) or (len(self.source) / 2 > len(self.target)):
             self.log.warning(f'Big difference between chapters number: {len(self.source)} and {len(self.target)}. Are you sure the files are valid?')
 
-        def chapter_signature(chapter):
-            title = chapter.get('toc_path', [''])[-1]
-            full_text = chapter.get('full_text', '')
-            if not full_text:
-                full_text = BeautifulSoup(chapter.get('content_html', ''), 'html.parser').get_text(separator=' ')
-            if not full_text:
-                return title
-
-            text = full_text.replace('\n', ' ').strip()
-
-            length = 1000
-            if len(text) <= 2 * length:
-                body = text
-            else:
-                body = text[:length] + ' [B_SEP] ' + text[-length:]
-
-            return (title + ' [T_SEP] ' + body).strip()
-
         src_signature = [chapter_signature(ch) for ch in self.source]
         tgt_signature = [chapter_signature(ch) for ch in self.target]
 
@@ -260,69 +327,19 @@ class Mapper:
                 return [(i, None) for i in range(S)]
             return []
 
-        src_embs = model.encode(src_signature, convert_to_numpy = True, show_progress_bar = False)
-        tgt_embs = model.encode(tgt_signature, convert_to_numpy = True, show_progress_bar = False)
+        src_embs = model.encode(src_signature, convert_to_numpy=True, show_progress_bar=False)
+        tgt_embs = model.encode(tgt_signature, convert_to_numpy=True, show_progress_bar=False)
 
-        src_embs = src_embs / np.linalg.norm(src_embs, axis = 1, keepdims = True)
-        tgt_embs = tgt_embs / np.linalg.norm(tgt_embs, axis = 1, keepdims = True)
+        src_embs = src_embs / np.linalg.norm(src_embs, axis=1, keepdims=True)
+        tgt_embs = tgt_embs / np.linalg.norm(tgt_embs, axis=1, keepdims=True)
 
         sim = np.dot(src_embs, tgt_embs.T)
 
-        dp = np.full((S+1, T+1), -1e9)
-        dp[0, 0] = 0.0
-
-        class MatchDirection(IntEnum):
-            DIAGONAL = 0
-            UP = 1
-            LEFT = 2
-        back = np.zeros((S+1, T+1), dtype=int)
-
-        for i in range(S+1):
-            for j in range(T+1):
-                if i == 0 and j == 0:
-                    continue
-                best = -1e9
-                best_pointer = None
-                if i > 0 and j > 0:
-                    score = dp[i-1, j-1] + sim[i-1, j-1]
-                    if score > best:
-                        best = score
-                        best_pointer = MatchDirection.DIAGONAL
-                if i > 0:
-                    score = dp[i-1, j]
-                    if score > best:
-                        best = score
-                        best_pointer = MatchDirection.UP
-                if j > 0:
-                    score = dp[i, j-1]
-                    if score > best:
-                        best = score
-                        best_pointer = MatchDirection.LEFT
-                dp[i, j] = best
-                back[i, j] = best_pointer
-
-        i, j = S, T
-        chapter_pairs = []
-        while i > 0 or j > 0:
-            if back[i, j] == MatchDirection.DIAGONAL:
-                i -= 1; j -= 1
-                if sim[i, j] >= threshold:
-                    chapter_pairs.append((i, j))
-                else:
-                    self.unmatched_source_chapters.append(i)
-                    self.unmatched_target_chapters.append(j)
-            elif back[i, j] == MatchDirection.UP:
-                i -= 1
-                self.unmatched_source_chapters.append(i)
-            elif back[i, j] == MatchDirection.LEFT:
-                j -= 1
-                self.unmatched_target_chapters.append(j)
-
-        chapter_pairs.reverse()
-        self.unmatched_source_chapters.reverse()
-        self.unmatched_target_chapters.reverse()
-
+        chapter_pairs, unmatched_src, unmatched_tgt = match_chapters(sim, threshold)
         self.chapter_pairs = chapter_pairs
+        self.unmatched_source_chapters = unmatched_src
+        self.unmatched_target_chapters = unmatched_tgt
+
         if force_show:
             with utils.temporary_log_level(self.log, logging.INFO):
                 self._show_chapter_mapping()

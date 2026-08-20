@@ -3,14 +3,19 @@ from typing import List, Tuple, Set
 from bs4 import BeautifulSoup, Comment, Declaration, Doctype, NavigableString, ProcessingInstruction, Tag
 
 from bbb.splitter import Splitter
+from bbb.constants import BLOCK_TAGS, HEADING_TAGS
 from lingua import Language
 
 BR_PLACEHOLDER = '__BR__'
 BR_TAG = '<br/>'
 
-BLOCK_TAGS = {'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'li',
-              'section', 'article', 'header', 'footer', 'aside', 'main'}
-HEADING_TAGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+
+def _leaf_blocks(container) -> List[Tag]:
+    if not isinstance(container, Tag):
+        return [container]
+    blocks = [b for b in container.find_all(BLOCK_TAGS)
+              if not any(isinstance(c, Tag) and c.name in BLOCK_TAGS for c in b.children)]
+    return blocks or [container]
 
 
 class HtmlSentenceTokenizer:
@@ -22,7 +27,7 @@ class HtmlSentenceTokenizer:
         self._remove_blacklisted(soup)
 
         root = soup
-        if (hasattr(soup, 'contents') and len(soup.contents) == 1
+        if (len(soup.contents) == 1
                 and hasattr(soup.contents[0], 'name')
                 and soup.contents[0].name == '[document]'):
             root = soup.contents[0]
@@ -30,26 +35,8 @@ class HtmlSentenceTokenizer:
         self._replace_br_with_placeholder(root)
         self._join_soft_wrapped_lines(root)
 
-        # Find all block elements in the document
         body = root.body if hasattr(root, 'body') and root.body else root
-        all_blocks = body.find_all(BLOCK_TAGS) if isinstance(body, Tag) else []
-        
-        # Filter to only the deepest blocks (those that don't contain other block elements as direct children)
-        block_elements = []
-        for block in all_blocks:
-            if isinstance(block, Tag):
-                # Check if this block has any direct children that are block elements
-                has_block_children = any(
-                    child.name in BLOCK_TAGS 
-                    for child in block.children 
-                    if isinstance(child, Tag)
-                )
-                if not has_block_children:
-                    block_elements.append(block)
-        
-        # If no block elements found, use root itself
-        if not block_elements:
-            block_elements = [root] if isinstance(root, Tag) else [soup]
+        block_elements = _leaf_blocks(body) if isinstance(body, Tag) else [root]
 
         all_sents = []
         paragraph_starts = set()
@@ -62,54 +49,40 @@ class HtmlSentenceTokenizer:
                 continue
 
             block_start_idx = len(all_sents)
-            # Split by newlines to pre-split sentences separated by line breaks
-            lines = norm_text.split('\n')
             block_sents = []
-
-            for line in lines:
-                line = line.strip()
-                if not line:
+            cursor = 0
+            for line in norm_text.split('\n'):
+                line_begin = cursor
+                line_end = cursor + len(line)
+                cursor = line_end + 1
+                stripped = line.strip()
+                if not stripped:
                     continue
-                line_groups = self.splitter.run(line, language)
+                search_from = line_begin
+                line_groups = self.splitter.run(stripped, language)
                 for group in line_groups:
                     for sent in group:
                         s = sent.strip()
-                        if s:
-                            block_sents.append(s)
+                        if not s:
+                            continue
+                        pos = self._find_sentence_position(norm_text, s, search_from, line_end)
+                        if pos is None:
+                            continue
+                        end = pos + len(s)
+                        search_from = end
+                        raw_start = norm_to_raw[pos] if pos < len(norm_to_raw) else 0
+                        raw_end = norm_to_raw[end] if end < len(norm_to_raw) else len(block_text)
+                        block_sents.append((s, raw_start, raw_end))
 
             if not block_sents:
                 continue
 
-            # Only the first sentence of a block is a paragraph start;
-            # newline-separated sentences belong to the same paragraph.
-            block_tag_name = block.name if hasattr(block, 'name') else None
-            if block_tag_name not in HEADING_TAGS:
+            if block.name not in HEADING_TAGS:
                 paragraph_starts.add(block_start_idx)
 
-            # Extract HTML fragments for each sentence
-            last_pos = 0
-            for sent in block_sents:
-                pos = norm_text.find(sent, last_pos)
-                if pos == -1:
-                    stripped = re.sub(r'\s+', ' ', sent).strip()
-                    pos = norm_text.find(stripped, last_pos)
-                if pos == -1:
-                    pattern = re.escape(sent)
-                    pattern = re.sub(r'\\ ', r'\\s+', pattern)
-                    match = re.search(pattern, norm_text[last_pos:])
-                    if match:
-                        pos = last_pos + match.start()
-                    else:
-                        continue
-
-                end = pos + len(sent)
-                last_pos = end
-
-                raw_start = norm_to_raw[pos] if pos < len(norm_to_raw) else 0
-                raw_end = norm_to_raw[end] if end < len(norm_to_raw) else len(block_text)
-                fragment = self._extract_fragment(block, raw_start, raw_end)
-                fragment = fragment.replace(BR_PLACEHOLDER, BR_TAG)
-                all_sents.append((sent, fragment))
+            fragments = self._extract_fragments(block, [(a, b) for _, a, b in block_sents])
+            for i, (sent, _, _) in enumerate(block_sents):
+                all_sents.append((sent, fragments[i].replace(BR_PLACEHOLDER, BR_TAG)))
 
         if not all_sents:
             full_text = root.get_text()
@@ -118,6 +91,21 @@ class HtmlSentenceTokenizer:
             return [], set()
 
         return all_sents, paragraph_starts
+
+    @staticmethod
+    def _find_sentence_position(text: str, sent: str, search_start: int, search_end: int) -> int:
+        pos = text.find(sent, search_start, search_end)
+        if pos != -1:
+            return pos
+        stripped = re.sub(r'\s+', ' ', sent).strip()
+        pos = text.find(stripped, search_start, search_end)
+        if pos != -1:
+            return pos
+        pattern = re.sub(r'\\ ', r'\\s+', re.escape(sent))
+        match = re.search(pattern, text[search_start:search_end])
+        if match:
+            return search_start + match.start()
+        return None
 
     def _remove_blacklisted(self, soup: BeautifulSoup) -> None:
         for tag in soup(['script', 'style', 'img', 'figure', 'svg', 'canvas']):
@@ -131,16 +119,10 @@ class HtmlSentenceTokenizer:
         def _looks_wrapped(text: str) -> bool:
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             hyphenated_break = re.search(r'\w-\s*\n\s*\w', text)
-            # Avoid joining short lines.
             long_wrapped_lines = len(lines) >= 3 and sum(len(line) >= 40 for line in lines) >= len(lines) - 1
             return bool(hyphenated_break) or bool(long_wrapped_lines)
 
-        blocks = [block for block in root.find_all(BLOCK_TAGS)
-                  if not any(isinstance(child, Tag) and child.name in BLOCK_TAGS for child in block.children)]
-        if not blocks:
-            blocks = [root]
-
-        for block in blocks:
+        for block in _leaf_blocks(root):
             block_wrapped = _looks_wrapped(block.get_text())
             for text_node in block.find_all(string=True):
                 text = str(text_node)
@@ -185,51 +167,74 @@ class HtmlSentenceTokenizer:
 
         return ''.join(norm_parts), norm_to_raw
 
-    def _extract_fragment(self, root: Tag, start: int, end: int) -> str:
-        # Create a copy of the root tag to preserve its attributes
-        root_copy = BeautifulSoup('', 'html.parser').new_tag(
-            root.name, attrs=dict(root.attrs) if root.attrs else None
-        )
-        self._collect_fragment(root, root_copy, 0, start, end)
-        return str(root_copy)
+    def _extract_fragments(self, root: Tag, intervals: List[Tuple[int, int]]) -> List[str]:
+        ranges = {}
+        self._compute_ranges(root, 0, ranges)
 
-    def _collect_fragment(self, src_node, dest_parent, current_pos, start, end) -> int:
-        if isinstance(src_node, (Comment, ProcessingInstruction, Doctype, Declaration)):
-            return current_pos
+        builder = BeautifulSoup('', 'html.parser')
+        stacks = []
+        for start, end in intervals:
+            top = builder.new_tag(root.name, attrs=dict(root.attrs) if root.attrs else None)
+            stacks.append([top])
 
-        if isinstance(src_node, NavigableString):
-            text = str(src_node)
-            node_len = len(text)
-            node_start = current_pos
-            node_end = current_pos + node_len
+        self._collect_fragments(root, intervals, ranges, stacks, builder)
+        return [str(stack[0]) for stack in stacks]
 
-            if node_end <= start or node_start >= end:
-                return current_pos + node_len
+    @staticmethod
+    def _compute_ranges(node, pos: int, ranges: dict) -> int:
+        if isinstance(node, (Comment, ProcessingInstruction, Doctype, Declaration)):
+            ranges[id(node)] = (pos, pos)
+            return pos
+        if isinstance(node, NavigableString):
+            length = len(str(node))
+            ranges[id(node)] = (pos, pos + length)
+            return pos + length
+        if not isinstance(node, Tag):
+            ranges[id(node)] = (pos, pos)
+            return pos
 
-            if node_start >= start and node_end <= end:
-                dest_parent.append(text)
-            else:
-                if node_start < start and node_end > start:
-                    text = text[start - node_start:]
-                    node_start = start
-                if node_end > end and node_start < end:
-                    text = text[:end - node_start]
-                dest_parent.append(text)
+        p = pos
+        starts = []
+        ends = []
+        for child in node.children:
+            child_end = HtmlSentenceTokenizer._compute_ranges(child, p, ranges)
+            start, _ = ranges[id(child)]
+            starts.append(start)
+            ends.append(child_end)
+            p = child_end
+        ranges[id(node)] = (min(starts, default=pos), max(ends, default=pos))
+        return p
 
-            return current_pos + node_len
-
-        if not isinstance(src_node, Tag):
-            return current_pos
-
-        for child in src_node.children:
+    def _collect_fragments(self, node: Tag, intervals, ranges, stacks, builder) -> None:
+        for child in node.children:
+            if isinstance(child, (Comment, ProcessingInstruction, Doctype, Declaration)):
+                continue
             if isinstance(child, NavigableString):
-                current_pos = self._collect_fragment(child, dest_parent, current_pos, start, end)
+                text = str(child)
+                cstart, cend = ranges[id(child)]
+                for idx, (istart, iend) in enumerate(intervals):
+                    if cend <= istart or cstart >= iend:
+                        continue
+                    stack = stacks[idx]
+                    if cstart >= istart and cend <= iend:
+                        stack[-1].append(text)
+                    else:
+                        lo = max(cstart, istart)
+                        hi = min(cend, iend)
+                        stack[-1].append(text[lo - cstart:hi - cstart])
             elif isinstance(child, Tag):
-                new_tag = BeautifulSoup('', 'html.parser').new_tag(
-                    child.name, attrs=dict(child.attrs) if child.attrs else None
-                )
-                dest_parent.append(new_tag)
-                current_pos = self._collect_fragment(child, new_tag, current_pos, start, end)
-                if not new_tag.contents:
-                    new_tag.decompose()
-        return current_pos
+                cstart, cend = ranges[id(child)]
+                new_tags = {}
+                for idx, (istart, iend) in enumerate(intervals):
+                    if cend <= istart or cstart >= iend:
+                        continue
+                    new_tag = builder.new_tag(child.name, attrs=dict(child.attrs) if child.attrs else None)
+                    stacks[idx][-1].append(new_tag)
+                    stacks[idx].append(new_tag)
+                    new_tags[idx] = new_tag
+                if new_tags:
+                    self._collect_fragments(child, intervals, ranges, stacks, builder)
+                for idx, new_tag in new_tags.items():
+                    stacks[idx].pop()
+                    if not new_tag.contents:
+                        new_tag.decompose()

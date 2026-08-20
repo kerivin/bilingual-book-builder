@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 from unittest.mock import MagicMock
-from bbb.mapper import Mapper
+from bbb.mapper import Mapper, match_chapters
 
 def make_chapters(titles, texts):
     return [{"toc_path": [t], "full_text": txt, "preview": txt[:30], "index": i}
@@ -84,3 +84,27 @@ def test_auto_match_uses_content_html():
     assert result == [(0, 0)]
     assert "alpha beta gamma" in captured[0]
     assert "alpha beta gamma" in captured[1]
+
+
+def test_match_chapters_threshold():
+    sim = np.array([[1.0, 0.0], [0.0, 1.0]])
+    pairs, unmatched_src, unmatched_tgt = match_chapters(sim, threshold=0.5)
+    assert pairs == [(0, 0), (1, 1)]
+    assert unmatched_src == []
+    assert unmatched_tgt == []
+
+
+def test_match_chapters_below_threshold():
+    sim = np.array([[0.4, 0.0], [0.0, 0.4]])
+    pairs, unmatched_src, unmatched_tgt = match_chapters(sim, threshold=0.5)
+    assert pairs == []
+    assert unmatched_src == [0, 1]
+    assert unmatched_tgt == [0, 1]
+
+
+def test_match_chapters_deletion():
+    sim = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    pairs, unmatched_src, unmatched_tgt = match_chapters(sim, threshold=0.5)
+    assert pairs == [(0, 0), (1, 2)]
+    assert unmatched_src == []
+    assert unmatched_tgt == [1]
