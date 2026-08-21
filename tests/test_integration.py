@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 from ebooklib import epub
 import numpy as np
 from bbb.bbb import BBB, Config
+import bbb.aligner
 from conftest import make_epub_bytes, create_chapter_html, write_epub_to_fake
 
 

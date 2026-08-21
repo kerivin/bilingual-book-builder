@@ -6,10 +6,6 @@ from typing import Callable, Literal, Optional
 from ebooklib import epub
 
 from bbb.epub_file import EpubFile
-from bbb.extractor import Extractor
-from bbb.mapper import Mapper
-from bbb.aligner import Aligner
-from bbb.book_builder import BookBuilder
 from bbb.constants import SRC_FN_PREFIX, TGT_FN_PREFIX
 from bbb.progress import ProgressReporter
 
@@ -81,20 +77,6 @@ class BBB:
             return None
         return source_book, target_book
 
-    def _extract(self, source_book, target_book):
-        force_show = self.config.only == 'extract'
-        source_chapters, source_footnotes = Extractor(
-            epub_file=source_book,
-            force_show=force_show,
-            fn_prefix=SRC_FN_PREFIX,
-        ).get_chapter_list()
-        target_chapters, target_footnotes = Extractor(
-            epub_file=target_book,
-            force_show=force_show,
-            fn_prefix=TGT_FN_PREFIX,
-        ).get_chapter_list()
-        return source_chapters, source_footnotes, target_chapters, target_footnotes
-
     def _map(self, mapper, sentence_transformer):
         if not self.config.manual:
             chapter_pairs = mapper.run_auto(
@@ -106,21 +88,35 @@ class BBB:
             chapter_pairs = mapper.run_interactive()
         return chapter_pairs
 
-    def run(self):
+    def run(self) -> bool:
         if not self._validate_inputs():
-            return
+            return False
         books = self._load_books()
         if books is None:
-            return
+            return False
         source_book, target_book = books
 
-        source_chapters, source_footnotes, target_chapters, target_footnotes = self._extract(source_book, target_book)
+        from bbb.extractor import Extractor
+
+        force_show = self.config.only == 'extract'
+        source_chapters, source_footnotes = Extractor(
+            epub_file=source_book,
+            force_show=force_show,
+            fn_prefix=SRC_FN_PREFIX,
+        ).get_chapter_list()
+        target_chapters, target_footnotes = Extractor(
+            epub_file=target_book,
+            force_show=force_show,
+            fn_prefix=TGT_FN_PREFIX,
+        ).get_chapter_list()
         if not source_chapters or not target_chapters:
             self.log.error("No chapters extracted from one or both books.")
-            return
+            return False
 
         if self.config.only == 'extract':
-            return
+            return True
+
+        from bbb.mapper import Mapper
 
         mapper = Mapper(
             source_chapters=source_chapters,
@@ -133,10 +129,13 @@ class BBB:
         chapter_pairs = self._map(mapper, sentence_transformer)
         if not chapter_pairs:
             self.log.error("No chapters to align")
-            return
+            return False
 
         if self.config.only == 'auto-match':
-            return
+            return True
+
+        from bbb.aligner import Aligner
+        from bbb.book_builder import BookBuilder
 
         aligned = Aligner(
             source_chapters,
@@ -152,7 +151,7 @@ class BBB:
 
         if not aligned:
             self.log.error("No aligned chapters produced.")
-            return
+            return False
 
         new_book = BookBuilder(
             source_book=source_book,
@@ -166,10 +165,15 @@ class BBB:
 
         if not new_book:
             self.log.error("Failed to build the new book.")
-            return
+            return False
 
         output = self.config.output
         if not output.lower().endswith(".epub"):
             output += ".epub"
-        epub.write_epub(output, new_book)
+        try:
+            epub.write_epub(output, new_book)
+        except Exception as e:
+            self.log.error(f"Failed to write EPUB file {output}: {e}")
+            return False
         self.log.info("EPUB written successfully.")
+        return True

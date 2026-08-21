@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from bbb.mapper import Mapper, match_chapters
 
 def make_chapters(titles, texts):
-    return [{"toc_path": [t], "full_text": txt, "preview": txt[:30], "index": i}
+    return [{"toc_path": [t], "content_html": txt, "preview": txt[:30], "index": i}
             for i, (t, txt) in enumerate(zip(titles, texts))]
 
 @pytest.fixture

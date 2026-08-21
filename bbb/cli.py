@@ -50,9 +50,8 @@ def main() -> int:
         verbosity=args.verbosity,
         progress_callback=_make_progress_callback(args.verbosity),
     )
-    BBB(config).run()
-
-    return 0
+    ok = BBB(config).run()
+    return 0 if ok else 1
 
 
 def _make_progress_callback(verbosity):

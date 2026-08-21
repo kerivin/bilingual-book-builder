@@ -13,13 +13,11 @@ class MatchDirection(IntEnum):
 
 def chapter_signature(chapter):
     title = chapter.get('toc_path', [''])[-1]
-    full_text = chapter.get('full_text', '')
-    if not full_text:
-        full_text = BeautifulSoup(chapter.get('content_html', ''), 'html.parser').get_text(separator=' ')
-    if not full_text:
+    text = BeautifulSoup(chapter.get('content_html', ''), 'html.parser').get_text(separator=' ')
+    if not text:
         return title
 
-    text = full_text.replace('\n', ' ').strip()
+    text = text.replace('\n', ' ').strip()
 
     length = 1000
     if len(text) <= 2 * length:
