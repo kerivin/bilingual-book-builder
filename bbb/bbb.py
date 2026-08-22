@@ -125,6 +125,8 @@ class BBB:
             keep_unmatched_target_chapters=self.config.keep_unmatched_target_chapters,
         )
 
+        from bbb.aligner import Aligner
+
         sentence_transformer = self._create_sentence_transformer()
         chapter_pairs = self._map(mapper, sentence_transformer)
         if not chapter_pairs:
@@ -134,7 +136,6 @@ class BBB:
         if self.config.only == 'auto-match':
             return True
 
-        from bbb.aligner import Aligner
         from bbb.book_builder import BookBuilder
 
         aligned = Aligner(
